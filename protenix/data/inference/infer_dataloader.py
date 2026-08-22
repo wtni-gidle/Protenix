@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import logging
 import os
 import time
@@ -31,6 +30,7 @@ from protenix.data.template.template_featurizer import InferenceTemplateFeaturiz
 from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
+from protenix.utils.input_json import load_input_json
 from protenix.utils.torch_utils import collate_fn_identity, dict_to_tensor
 
 logger = logging.getLogger(__name__)
@@ -80,8 +80,7 @@ class InferenceDataset(Dataset):
         self.msa_pair_as_unpair = configs.get("msa_pair_as_unpair", True)
         self.use_rna_msa = configs.get("use_rna_msa", True)
         self.use_template = configs.get("use_template", True)
-        with open(self.input_json_path, "r") as f:
-            self.inputs = json.load(f)
+        self.inputs = load_input_json(self.input_json_path)
         json_task_name = os.path.basename(self.input_json_path).split(".")[0]
         if self.use_template:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir

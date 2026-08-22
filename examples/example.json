@@ -6,7 +6,7 @@
                 "count": 1,
                 "id": ["A"],
                 "msa": {
-                    "precomputed_msa_dir": "./examples/7r6r/msa/1",
+                    "precomputed_msa_dir": "7r6r/msa/1",
                     "pairing_db": "uniref100"
                 }
             }
@@ -35,7 +35,7 @@
                 "sequence": "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT",
                 "count": 2,
                 "msa": {
-                    "precomputed_msa_dir": "./examples/7wux/msa/1",
+                    "precomputed_msa_dir": "7wux/msa/1",
                     "pairing_db": "uniref100"
                 }
             }
@@ -45,7 +45,7 @@
                 "sequence": "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS",
                 "count": 2,
                 "msa": {
-                    "precomputed_msa_dir": "./examples/7wux/msa/2",
+                    "precomputed_msa_dir": "7wux/msa/2",
                     "pairing_db": "uniref100"
                 }
             }
@@ -79,7 +79,7 @@
                 "count": 2,
                 "id": ["A", "B"],
                 "msa": {
-                    "precomputed_msa_dir": "./examples/7pzb/msa/1",
+                    "precomputed_msa_dir": "7pzb/msa/1",
                     "pairing_db": "uniref100"
                 }
             }

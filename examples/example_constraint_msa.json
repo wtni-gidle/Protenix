@@ -6,7 +6,7 @@
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/1/",
+                        "precomputed_msa_dir": "7st3/msa/1/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -16,7 +16,7 @@
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/2/",
+                        "precomputed_msa_dir": "7st3/msa/2/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -32,7 +32,7 @@
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/1/",
+                        "precomputed_msa_dir": "7st3/msa/1/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -42,7 +42,7 @@
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/2/",
+                        "precomputed_msa_dir": "7st3/msa/2/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -74,7 +74,7 @@
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/1/",
+                        "precomputed_msa_dir": "7st3/msa/1/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -84,7 +84,7 @@
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/7st3/msa/2/",
+                        "precomputed_msa_dir": "7st3/msa/2/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -113,7 +113,7 @@
                     "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/5sak/1/",
+                        "precomputed_msa_dir": "5sak/1/",
                         "pairing_db": "uniref100"
                     }
                 }
@@ -135,7 +135,7 @@
                     "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
                     "count": 1,
                     "msa": {
-                        "precomputed_msa_dir": "./examples/5sak/1/",
+                        "precomputed_msa_dir": "5sak/1/",
                         "pairing_db": "uniref100"
                     }
                 }

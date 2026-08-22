@@ -5,6 +5,7 @@ import numpy as np
 
 from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.constants import ATOM37_NUM
+from protenix.utils.input_json import load_input_json
 
 class TestJsonTemplateParser(unittest.TestCase):
     def test_json_template_parser(self):
@@ -12,8 +13,7 @@ class TestJsonTemplateParser(unittest.TestCase):
         json_path = "examples/example_with_json_template/demo_ab.json"
         self.assertTrue(os.path.exists(json_path), f"File {json_path} does not exist")
         
-        with open(json_path, "r") as f:
-            data = json.load(f)
+        data = load_input_json(json_path)
             
         # Extract the sequence and template list
         protein_chain = data[0]["sequences"][0]["proteinChain"]

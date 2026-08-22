@@ -36,6 +36,7 @@ from protenix.config.config import parse_configs, parse_sys_args
 from protenix.data.inference.infer_dataloader import get_inference_dataloader
 from protenix.model.protenix import Protenix
 from protenix.utils.distributed import DIST_WRAPPER
+from protenix.utils.input_json import load_input_json
 from protenix.utils.seed import seed_everything
 from protenix.utils.torch_utils import to_device
 from protenix.web_service.dependency_url import URL
@@ -533,8 +534,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     """
     # Data loading
     logger.info(f"Loading data from {configs.input_json_path}")
-    with open(configs.input_json_path, "r", encoding="utf-8") as f:
-        json_data = json.load(f)
+    json_data = load_input_json(configs.input_json_path)
 
     if not isinstance(json_data, list) or len(json_data) == 0:
         raise ValueError(

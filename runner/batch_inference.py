@@ -36,6 +36,11 @@ from protenix.config.config import parse_configs
 from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
+from protenix.utils.input_json import (
+    discover_input_jsons,
+    load_input_json,
+    make_input_json_paths_relative,
+)
 from protenix.utils.logger import get_logger
 from protenix.version import __version__
 from rdkit import Chem
@@ -109,14 +114,16 @@ def preprocess_input(
     Returns:
         str: Path to the updated JSON file.
     """
+    input_json = os.path.abspath(os.path.expanduser(input_json))
+    out_dir = os.path.abspath(os.path.expanduser(out_dir))
+
     # 1. Protein MSA search
     msa_updated_json, _ = update_infer_json(
         input_json, out_dir, use_msa=use_msa, mode=msa_server_mode
     )
 
     # Read the data (either original or updated)
-    with open(msa_updated_json, "r") as f:
-        json_data = json.load(f)
+    json_data = load_input_json(msa_updated_json)
 
     actual_updated = False
 
@@ -157,7 +164,9 @@ def preprocess_input(
         )
 
         with open(output_json, "w") as f:
-            json.dump(json_data, f, indent=4)
+            json.dump(
+                make_input_json_paths_relative(json_data, output_json), f, indent=4
+            )
         logger.info(f"Input preprocessing completed, results saved to {output_json}")
         return output_json
     else:
@@ -496,18 +505,10 @@ def inference_jsons(
         rna_central_database_path (Optional[str]): RNAcentral database path.
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
     """
-    infer_jsons = []
-    if os.path.isdir(json_file):
-        infer_jsons = [
-            str(file) for file in Path(json_file).rglob("*") if file.is_file()
-        ]
-        if len(infer_jsons) == 0:
-            raise RuntimeError(f"Can not read a valid json file in {json_file}")
-    elif os.path.isfile(json_file):
-        infer_jsons = [json_file]
-    else:
-        raise RuntimeError(f"Can not read a special file: {json_file}")
-    infer_jsons = [file for file in infer_jsons if file.endswith(".json")]
+    try:
+        infer_jsons = discover_input_jsons(json_file)
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Can not read a special file: {json_file}") from exc
     logger.info(f"Will infer with {len(infer_jsons)} jsons")
     if len(infer_jsons) == 0:
         return

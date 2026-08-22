@@ -5,9 +5,9 @@
                 "proteinChain": {
                     "sequence": "MMKKKSVKLKDIAIQAEVSVATVSAALNGTGRIGDELRSRIMEVARQMNYEPNLAARLLKQKHCNDIGLVISDPPRRIAGSGFFQPMIYHFIQLCDEQGIRCQIEYHDPDVKDGQVPALMTGGFTGGVLYGGAVGTATRRWIKENPSFPIVTFEDRDFEYTIHSRYDLAAYRMVQHLAALGHRHVALLAGLPRYELQQGMREGFTRAVADFRLDAACWDREYAFRLENDADTMREGVEYCEKLFARTVRPTALVISDARLAKAALYTALKHGIDVPRDLSIFTCGNEYETEQVYPALSSIRWNAHEAIYKAYHLLRSLMEGRIPAEKVIEVEPVLTLRDSTARCS",
                     "count": 1,
-                    "pairedMsaPath": "./examples/examples_with_template/MGYP004658859411/pairing.a3m",
-                    "unpairedMsaPath": "./examples/examples_with_template/MGYP004658859411/non_pairing.a3m",
-                    "templatesPath": "./examples/examples_with_template/MGYP004658859411/concat.hhr"
+                    "pairedMsaPath": "MGYP004658859411/pairing.a3m",
+                    "unpairedMsaPath": "MGYP004658859411/non_pairing.a3m",
+                    "templatesPath": "MGYP004658859411/concat.hhr"
                 }
             }
         ],

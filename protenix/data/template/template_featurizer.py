@@ -39,6 +39,7 @@ from protenix.data.template.template_utils import (
 )
 from protenix.data.utils import pad_to
 from protenix.utils.file_io import load_json_cached
+from protenix.utils.input_json import load_template_json
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -710,7 +711,7 @@ class InferenceTemplateFeaturizer:
             if t_path and use_template and online_template_featurizer:
                 assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
                 if t_path.endswith(".json"):
-                    json_list = load_json_cached(t_path)
+                    json_list = load_template_json(t_path)
                     results = online_template_featurizer.parse_json_templates(json_list, seq)
                     templates = results.features
                 else:

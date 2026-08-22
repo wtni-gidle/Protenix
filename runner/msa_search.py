@@ -16,8 +16,8 @@ import os
 import uuid
 from typing import Any, Sequence, Tuple
 
+from protenix.utils.input_json import load_input_json, make_input_json_paths_relative
 from protenix.utils.logger import get_logger
-from protenix.web_service.colab_request_parser import RequestParser
 
 logger = get_logger(__name__)
 
@@ -136,6 +136,8 @@ def msa_search(
     Returns:
         Sequence[str]: List of directories containing MSA results for each sequence.
     """
+    from protenix.web_service.colab_request_parser import RequestParser
+
     os.makedirs(msa_res_dir, exist_ok=True)
     tmp_fasta_fpath = os.path.join(msa_res_dir, f"tmp_{uuid.uuid4().hex}.fasta")
     msa_res_subdirs = RequestParser.msa_search(
@@ -209,10 +211,11 @@ def update_infer_json(
             - Path to the updated (or original) JSON file.
             - Boolean indicating if any MSA search was actually performed.
     """
+    json_file = os.path.abspath(os.path.expanduser(json_file))
+    out_dir = os.path.abspath(os.path.expanduser(out_dir))
     if not os.path.exists(json_file):
         raise FileNotFoundError(f"Input file `{json_file}` does not exist.")
-    with open(json_file, "r") as f:
-        json_data = json.load(f)
+    json_data = load_input_json(json_file)
 
     # Change the old format of msa filed to new format
     json_data, json_need_converted = convert_msa_to_new_format(json_data)
@@ -236,7 +239,9 @@ def update_infer_json(
             f"{os.path.splitext(os.path.basename(json_file))[0]}-update-msa.json",
         )
         with open(updated_json, "w") as f:
-            json.dump(json_data, f, indent=4)
+            json.dump(
+                make_input_json_paths_relative(json_data, updated_json), f, indent=4
+            )
         logger.info(f"update msa result success and save to {updated_json}")
         return updated_json, actual_updated
     elif not use_msa:

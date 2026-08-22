@@ -33,6 +33,7 @@ from protenix.data.tools.search import (
     NhmmerConfig,
     RunConfig,
 )
+from protenix.utils.input_json import sanitise_job_name
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -407,7 +408,9 @@ def update_rna_msa_info(
     """
     actual_updated = False
     for task_idx, infer_data in enumerate(json_data):
-        task_name = infer_data.get("name", f"task_{task_idx}")
+        task_name = sanitise_job_name(
+            str(infer_data.get("name") or f"task_{task_idx}")
+        )
         for sequence_idx, sequence in enumerate(infer_data["sequences"]):
             if "rnaSequence" in sequence:
                 rna_chain = sequence["rnaSequence"]
@@ -424,7 +427,7 @@ def update_rna_msa_info(
                     f"Running RNA MSA search for task {task_name}, rna_sequence: {rna_sequence}"
                 )
                 rna_output_dir = os.path.join(
-                    out_dir, task_name, "rna_msa", str(sequence_idx)
+                    out_dir, task_name, "msas", "rna", str(sequence_idx)
                 )
                 run_rna_msa_search(
                     rna_seq_for_msa_search=rna_sequence,

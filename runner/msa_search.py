@@ -16,7 +16,11 @@ import os
 import uuid
 from typing import Any, Sequence, Tuple
 
-from protenix.utils.input_json import load_input_json, make_input_json_paths_relative
+from protenix.utils.input_json import (
+    load_input_json,
+    make_input_json_paths_relative,
+    sanitise_job_name,
+)
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -194,7 +198,11 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
 
 
 def update_infer_json(
-    json_file: str, out_dir: str, use_msa: bool = True, mode: str = "protenix"
+    json_file: str,
+    out_dir: str,
+    use_msa: bool = True,
+    mode: str = "protenix",
+    updated_json_path: str | None = None,
 ) -> Tuple[str, bool]:
     """
     Update the inference JSON file with MSA information.
@@ -205,6 +213,7 @@ def update_infer_json(
         out_dir (str): Directory to save MSA results.
         use_msa (bool): Whether to perform MSA search if missing.
         mode (str): MSA search mode ('protenix' or 'colabfold').
+        updated_json_path (str | None): Optional path for the intermediate JSON.
 
     Returns:
         Tuple[str, bool]:
@@ -224,20 +233,26 @@ def update_infer_json(
     for task_idx, infer_data in enumerate(json_data):
         if use_msa and need_msa_search(infer_data):
             actual_updated = True
-            task_name = infer_data.get("name", f"task_{task_idx}")
+            task_name = sanitise_job_name(
+                str(infer_data.get("name") or f"task_{task_idx}")
+            )
             logger.info(
                 f"starting to update msa result for task {task_idx} in {json_file}"
             )
             update_seq_msa(
                 infer_data,
-                os.path.join(out_dir, task_name, "msa"),
+                os.path.join(out_dir, task_name, "msas"),
                 mode,
             )
     if actual_updated or json_need_converted:
-        updated_json = os.path.join(
-            os.path.dirname(os.path.abspath(json_file)),
-            f"{os.path.splitext(os.path.basename(json_file))[0]}-update-msa.json",
-        )
+        if updated_json_path is None:
+            updated_json = os.path.join(
+                os.path.dirname(os.path.abspath(json_file)),
+                f"{os.path.splitext(os.path.basename(json_file))[0]}-update-msa.json",
+            )
+        else:
+            updated_json = os.path.abspath(os.path.expanduser(updated_json_path))
+            os.makedirs(os.path.dirname(updated_json), exist_ok=True)
         with open(updated_json, "w") as f:
             json.dump(
                 make_input_json_paths_relative(json_data, updated_json), f, indent=4

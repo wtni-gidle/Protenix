@@ -16,6 +16,8 @@
 
 import json
 import os
+import string
+import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
@@ -153,3 +155,67 @@ def discover_input_jsons(path: str | os.PathLike[str]) -> list[str]:
         if not is_template_sidecar:
             job_jsons.append(str(candidate.resolve()))
     return job_jsons
+
+
+def sanitise_job_name(name: str) -> str:
+    """Return an AlphaFold-style job name that is safe for file paths."""
+    spaceless_name = name.replace(" ", "_")
+    allowed_chars = set(string.ascii_letters + string.digits + "_-.x")
+    safe_name = "".join(char for char in spaceless_name if char in allowed_chars)
+    if safe_name in {"", ".", ".."}:
+        raise ValueError(f"Job name has no safe filename representation: {name!r}")
+    return safe_name
+
+
+def prepared_job_names(
+    input_json_path: str | os.PathLike[str],
+) -> list[str]:
+    """Validate an input JSON and return its prepared output job names."""
+    jobs = load_input_json(input_json_path)
+    if not isinstance(jobs, list) or not jobs:
+        raise ValueError("Prepared input must be a non-empty top-level list.")
+
+    names = []
+    for job_index, job in enumerate(jobs):
+        if not isinstance(job, dict) or "sequences" not in job:
+            raise ValueError(f"Invalid inference job at index {job_index}.")
+        raw_name = str(job.get("name") or f"task_{job_index}")
+        names.append(sanitise_job_name(raw_name))
+
+    if len(names) != len(set(names)):
+        raise ValueError("Input contains duplicate sanitised job names.")
+    return names
+
+
+def write_prepared_input_jsons(
+    input_json_path: str | os.PathLike[str],
+    output_dir: str | os.PathLike[str],
+) -> list[str]:
+    """Write one path-stable prepared JSON for each input job."""
+    jobs = load_input_json(input_json_path)
+    safe_names = prepared_job_names(input_json_path)
+    output_root = Path(output_dir).expanduser().resolve()
+    prepared_jobs = []
+    for job, safe_name in zip(jobs, safe_names):
+        job_dir = output_root / safe_name
+        prepared_path = job_dir / f"{safe_name}_data.json"
+        if output_root not in prepared_path.resolve().parents:
+            raise ValueError(f"Prepared path escapes output directory: {prepared_path}")
+        prepared_job = make_input_json_paths_relative([job], prepared_path)
+        prepared_jobs.append((job_dir, prepared_path, prepared_job))
+
+    prepared_paths = []
+    for job_dir, prepared_path, prepared_job in prepared_jobs:
+        job_dir.mkdir(parents=True, exist_ok=True)
+        temporary_path = prepared_path.with_name(
+            f".{prepared_path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        try:
+            with open(temporary_path, "w", encoding="utf-8") as f:
+                json.dump(prepared_job, f, indent=4)
+            os.replace(temporary_path, prepared_path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+        prepared_paths.append(str(prepared_path))
+
+    return prepared_paths

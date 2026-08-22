@@ -99,9 +99,19 @@ protenix pred --input examples/input.json --model_name protenix_mini_default_v0.
 
 # Customized inference: Disable MSA and use shared variable caching
 protenix pred --input examples/input.json --use_msa false --enable_cache true
+
+# Data pipeline only: write <output>/<job>/<job>_data.json without loading a model
+protenix pred --input examples/input.json --out_dir ./prepared \
+  --run_data_pipeline true --run_inference false
+
+# Inference only: consume a previously prepared JSON without running searches
+protenix pred --input ./prepared/user_test/user_test_data.json --out_dir ./output \
+  --run_data_pipeline false --run_inference true
 ```
 
 #### Key Inference Flags
+- `--run_data_pipeline`: Run MSA/template/RNA preprocessing (default: `true`).
+- `--run_inference`: Run model inference (default: `true`). At least one workflow stage must be enabled.
 - `--seeds`: Comma-separated list of random seeds (e.g., `101,102`).
 - `--model_name`: Model variant selection (e.g., `protenix_base_default_v1.0.0`, `protenix_mini_default_v0.5.0`).
 - `--use_default_params`: (Default: `true`) Automatically configures cycles and steps based on the selected model. Set to `false` to manually override `--cycle` and `--step`.
@@ -110,6 +120,13 @@ protenix pred --input examples/input.json --use_msa false --enable_cache true
 - `--dtype`: Set data type to `bf16` (default) or `fp32`.
 - `--trimul_kernel` / `--triatt_kernel`: Choose specialized kernels (e.g., `cuequivariance`, `triattention`) for hardware acceleration.
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).
+
+When the data pipeline is enabled, each job is written to a stable prepared JSON at
+`<out_dir>/<sanitised_job>/<sanitised_job>_data.json`. The prepared JSON stores
+resource paths relative to itself and can be passed back with
+`--run_data_pipeline false`. Newly searched protein/RNA MSAs and template hits are
+kept together under the job's `msas/` directory. Existing external resources are
+referenced rather than copied; resource copying and compression are separate steps.
 
 ### Inference via Bash Script
 Alternatively, use the provided demo script for automated runs:

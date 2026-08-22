@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import List, Optional, Union
 
 import click
-import tqdm
 from Bio import SeqIO
 
 from configs.configs_base import configs as configs_base
@@ -37,11 +36,11 @@ from protenix.data.inference.json_maker import cif_to_input_json
 from protenix.data.inference.json_parser import lig_file_to_atom_info
 from protenix.data.utils import pdb_to_cif
 from protenix.utils.input_json import (
-    discover_input_jsons,
     load_input_json,
     make_input_json_paths_relative,
 )
 from protenix.utils.logger import get_logger
+from protenix.utils.prediction_workflow import run_prediction_workflow
 from protenix.version import __version__
 from rdkit import Chem
 
@@ -89,6 +88,7 @@ def preprocess_input(
     rfam_database_path: Optional[str] = None,
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
+    intermediate_json_path: Optional[str] = None,
 ) -> str:
     """
     Preprocess the input JSON file by performing MSA, template, and RNA MSA searches as needed.
@@ -110,16 +110,27 @@ def preprocess_input(
         rfam_database_path (Optional[str]): Rfam database path.
         rna_central_database_path (Optional[str]): RNAcentral database path.
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
+        intermediate_json_path (Optional[str]): Private intermediate path used by
+            the unified prediction workflow. Direct callers retain legacy output
+            naming when this is not set.
 
     Returns:
         str: Path to the updated JSON file.
     """
     input_json = os.path.abspath(os.path.expanduser(input_json))
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    if intermediate_json_path is not None:
+        intermediate_json_path = os.path.abspath(
+            os.path.expanduser(intermediate_json_path)
+        )
 
     # 1. Protein MSA search
     msa_updated_json, _ = update_infer_json(
-        input_json, out_dir, use_msa=use_msa, mode=msa_server_mode
+        input_json,
+        out_dir,
+        use_msa=use_msa,
+        mode=msa_server_mode,
+        updated_json_path=intermediate_json_path,
     )
 
     # Read the data (either original or updated)
@@ -131,6 +142,7 @@ def preprocess_input(
     if use_template:
         template_updated = update_template_info(
             json_data,
+            out_dir=out_dir,
             hmmsearch_binary_path=hmmsearch_binary_path,
             hmmbuild_binary_path=hmmbuild_binary_path,
             seqres_database_path=seqres_database_path,
@@ -153,19 +165,24 @@ def preprocess_input(
         actual_updated = actual_updated or rna_updated
 
     if actual_updated:
-        base, ext = os.path.splitext(os.path.basename(msa_updated_json))
-        if "-update-msa" in base:
-            output_json_name = base.replace("-update-msa", "-final-updated") + ext
+        if intermediate_json_path is None:
+            base, ext = os.path.splitext(os.path.basename(msa_updated_json))
+            if "-update-msa" in base:
+                output_json_name = base.replace("-update-msa", "-final-updated") + ext
+            else:
+                output_json_name = f"{base}-final-updated{ext}"
+            output_json = os.path.join(
+                os.path.dirname(os.path.abspath(msa_updated_json)), output_json_name
+            )
         else:
-            output_json_name = f"{base}-final-updated{ext}"
+            output_json = intermediate_json_path
 
-        output_json = os.path.join(
-            os.path.dirname(os.path.abspath(msa_updated_json)), output_json_name
-        )
-
+        os.makedirs(os.path.dirname(output_json), exist_ok=True)
         with open(output_json, "w") as f:
             json.dump(
-                make_input_json_paths_relative(json_data, output_json), f, indent=4
+                make_input_json_paths_relative(json_data, output_json),
+                f,
+                indent=4,
             )
         logger.info(f"Input preprocessing completed, results saved to {output_json}")
         return output_json
@@ -469,7 +486,9 @@ def inference_jsons(
     rfam_database_path: Optional[str] = None,
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
-) -> None:
+    run_data_pipeline: bool = True,
+    run_inference: bool = True,
+) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
 
@@ -504,42 +523,21 @@ def inference_jsons(
         rfam_database_path (Optional[str]): Rfam database path.
         rna_central_database_path (Optional[str]): RNAcentral database path.
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
-    """
-    try:
-        infer_jsons = discover_input_jsons(json_file)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"Can not read a special file: {json_file}") from exc
-    logger.info(f"Will infer with {len(infer_jsons)} jsons")
-    if len(infer_jsons) == 0:
-        return
+        run_data_pipeline (bool): Run MSA/template preprocessing.
+        run_inference (bool): Run model inference.
 
-    infer_errors = {}
-    inference_configs["dump_dir"] = out_dir
-    runner = get_default_runner(
-        seeds=seeds,
-        n_cycle=n_cycle,
-        n_step=n_step,
-        n_sample=n_sample,
-        dtype=dtype,
-        model_name=model_name,
-        use_msa=use_msa,
-        trimul_kernel=trimul_kernel,
-        triatt_kernel=triatt_kernel,
-        enable_cache=enable_cache,
-        enable_fusion=enable_fusion,
-        enable_tf32=enable_tf32,
-        use_template=use_template,
-        use_rna_msa=use_rna_msa,
-        use_seeds_in_json=use_seeds_in_json,
-        need_atom_confidence=need_atom_confidence,
-        kalign_binary_path=kalign_binary_path,
-        use_tfg_guidance=use_tfg_guidance,
-    )
-    configs = runner.configs
-    for _, infer_json in enumerate(tqdm.tqdm(infer_jsons)):
+    Returns:
+        List[str]: JSON paths that were prepared or sent to inference.
+    """
+    out_dir = os.path.abspath(os.path.expanduser(out_dir))
+
+    def preprocess_one(input_json: str) -> str:
+        temporary_json = os.path.join(
+            out_dir, ".protenix_tmp", f"{uuid.uuid4().hex}.json"
+        )
         try:
-            configs["input_json_path"] = preprocess_input(
-                infer_json,
+            return preprocess_input(
+                input_json,
                 out_dir=out_dir,
                 use_msa=use_msa,
                 use_template=use_template,
@@ -555,12 +553,69 @@ def inference_jsons(
                 rfam_database_path=rfam_database_path,
                 rna_central_database_path=rna_central_database_path,
                 nhmmer_n_cpu=nhmmer_n_cpu,
+                intermediate_json_path=temporary_json,
             )
-            infer_predict(runner, configs)
-        except Exception as exc:
-            infer_errors[infer_json] = str(exc)
-    if len(infer_errors) > 0:
-        logger.warning(f"Run inference failed: {infer_errors}")
+        except Exception:
+            Path(temporary_json).unlink(missing_ok=True)
+            try:
+                Path(temporary_json).parent.rmdir()
+            except OSError:
+                pass
+            raise
+
+    def create_runner() -> InferenceRunner:
+        inference_configs["dump_dir"] = out_dir
+        return get_default_runner(
+            seeds=seeds,
+            n_cycle=n_cycle,
+            n_step=n_step,
+            n_sample=n_sample,
+            dtype=dtype,
+            model_name=model_name,
+            use_msa=use_msa,
+            trimul_kernel=trimul_kernel,
+            triatt_kernel=triatt_kernel,
+            enable_cache=enable_cache,
+            enable_fusion=enable_fusion,
+            enable_tf32=enable_tf32,
+            use_template=use_template,
+            use_rna_msa=use_rna_msa,
+            use_seeds_in_json=use_seeds_in_json,
+            need_atom_confidence=need_atom_confidence,
+            kalign_binary_path=kalign_binary_path,
+            use_tfg_guidance=use_tfg_guidance,
+        )
+
+    def infer_one(runner: InferenceRunner, input_json: str) -> None:
+        runner.configs["input_json_path"] = input_json
+        infer_predict(runner, runner.configs)
+
+    try:
+        ready_jsons, inference_errors = run_prediction_workflow(
+            input_path=json_file,
+            output_dir=out_dir,
+            run_data_pipeline=run_data_pipeline,
+            run_inference=run_inference,
+            preprocess_input=preprocess_one,
+            create_runner=create_runner,
+            infer_input=infer_one,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Can not read a special file: {json_file}") from exc
+
+    logger.info(
+        "Workflow completed with %d ready JSON(s); data_pipeline=%s, inference=%s",
+        len(ready_jsons),
+        run_data_pipeline,
+        run_inference,
+    )
+    if inference_errors:
+        logger.warning(f"Run prediction workflow failed: {inference_errors}")
+        if not ready_jsons:
+            raise RuntimeError(
+                f"All input jobs failed during the prediction workflow: {inference_errors}"
+            )
+    return ready_jsons
 
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], show_default=True)
@@ -602,6 +657,20 @@ def protenix_cli() -> None:
     "-i", "--input", type=str, required=True, help="Input JSON file or directory."
 )
 @click.option("-o", "--out_dir", default="./output", type=str, help="Output directory.")
+@click.option(
+    "-D",
+    "--run_data_pipeline",
+    type=bool,
+    default=True,
+    help="Run MSA/template preprocessing.",
+)
+@click.option(
+    "-P",
+    "--run_inference",
+    type=bool,
+    default=True,
+    help="Run model inference.",
+)
 @click.option("-s", "--seeds", type=str, default="101", help="Seeds (comma-separated).")
 @click.option("-c", "--cycle", type=int, default=10, help="Pairformer cycle number.")
 @click.option("-p", "--step", type=int, default=200, help="Diffusion steps.")
@@ -764,6 +833,8 @@ def protenix_cli() -> None:
 def predict(
     input: str,
     out_dir: str,
+    run_data_pipeline: bool,
+    run_inference: bool,
     seeds: str,
     cycle: int,
     step: int,
@@ -801,6 +872,8 @@ def predict(
     Args:
         input (str): Input JSON file or directory.
         out_dir (str): Output directory for results.
+        run_data_pipeline (bool): Run MSA/template preprocessing.
+        run_inference (bool): Run model inference.
         seeds (str): Comma-separated seeds.
         cycle (int): Number of cycles.
         step (int): Number of diffusion steps.
@@ -832,9 +905,14 @@ def predict(
         rna_central_database_path (Optional[str]): RNAcentral database path.
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
     """
+    if not run_data_pipeline and not run_inference:
+        raise click.UsageError(
+            "At least one of --run_data_pipeline or --run_inference must be true."
+        )
+
     init_logging()
     logger.info(f"Run infer with input={input}, out_dir={out_dir}, sample={sample}")
-    if use_default_params:
+    if use_default_params and run_inference:
         if model_name in [
             "protenix_base_default_v0.5.0",
             "protenix_base_constraint_v0.5.0",
@@ -865,17 +943,25 @@ def predict(
         f"Using default params for model {model_name}: "
         f"cycle={cycle}, step={step}, use_msa={use_msa}"
     )
-    assert trimul_kernel in [
-        "cuequivariance",
-        "torch",
-    ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
-    assert triatt_kernel in ["triattention", "cuequivariance", "deepspeed", "torch",], (
-        "Invalid triatt_kernel. Options: 'triattention', "
-        "'cuequivariance', 'deepspeed', 'torch'."
-    )
-    seeds = list(map(int, seeds.split(",")))
+    if run_inference:
+        assert trimul_kernel in [
+            "cuequivariance",
+            "torch",
+        ], "Invalid trimul_kernel. Options: 'cuequivariance', 'torch'."
+        assert triatt_kernel in [
+            "triattention",
+            "cuequivariance",
+            "deepspeed",
+            "torch",
+        ], (
+            "Invalid triatt_kernel. Options: 'triattention', "
+            "'cuequivariance', 'deepspeed', 'torch'."
+        )
+        parsed_seeds = list(map(int, seeds.split(",")))
+    else:
+        parsed_seeds = []
 
-    if use_template:
+    if use_template and run_inference:
         assert model_name in [
             "protenix_base_default_v1.0.0",
             "protenix_base_20250630_v1.0.0",
@@ -891,7 +977,7 @@ def predict(
         )
         logger.info("=" * 50)
 
-    if use_rna_msa:
+    if use_rna_msa and run_inference:
         assert model_name in [
             "protenix_base_default_v1.0.0",
             "protenix_base_20250630_v1.0.0",
@@ -907,7 +993,7 @@ def predict(
         )
         logger.info("=" * 50)
 
-    if use_seeds_in_json:
+    if use_seeds_in_json and run_inference:
         logger.info("=" * 50)
         logger.info(
             "Using seeds defined in JSON file for inference.\n"
@@ -915,7 +1001,7 @@ def predict(
             "using seeds from modelSeeds defined in the JSON."
         )
         logger.info("=" * 50)
-    if use_tfg_guidance:
+    if use_tfg_guidance and run_inference:
         logger.info("=" * 50)
         logger.info("Using Training-Free Guidance (TFG) for inference.\n")
         logger.info("=" * 50)
@@ -923,7 +1009,7 @@ def predict(
         input,
         out_dir,
         use_msa,
-        seeds=seeds,
+        seeds=parsed_seeds,
         n_cycle=cycle,
         n_step=step,
         n_sample=sample,
@@ -951,6 +1037,8 @@ def predict(
         rfam_database_path=rfam_database_path,
         rna_central_database_path=rna_central_database_path,
         nhmmer_n_cpu=nhmmer_n_cpu,
+        run_data_pipeline=run_data_pipeline,
+        run_inference=run_inference,
     )
 
 

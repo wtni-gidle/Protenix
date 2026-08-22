@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from protenix.data.tools.search import HmmsearchConfig, run_hmmsearch_with_a3m
+from protenix.utils.input_json import sanitise_job_name
 from protenix.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -48,6 +49,7 @@ def run_template_search(
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
+    output_path: Optional[str] = None,
 ) -> None:
     """
     Run template search using hmmsearch with a3m files.
@@ -59,6 +61,7 @@ def run_template_search(
         hmmsearch_binary_path: Path to hmmsearch binary.
         hmmbuild_binary_path: Path to hmmbuild binary.
         seqres_database_path: Path to sequence database.
+        output_path: Optional path for the template-hit A3M.
     """
     # msa_for_template_search_dir contains the paired/unpaired MSA files, used for template search
     assert msa_for_template_search_dir is not None, "input msa dir should not be None"
@@ -145,19 +148,24 @@ def run_template_search(
         a3m=msa_a3m,
     )
 
-    with open(f"{msa_for_template_search_dir}/hmmsearch.a3m", "w") as f:
+    if output_path is None:
+        output_path = f"{msa_for_template_search_dir}/hmmsearch.a3m"
+    output_path = os.path.abspath(os.path.expanduser(output_path))
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    with open(output_path, "w") as f:
         f.write(hmmsearch_a3m)
     template_end_time = time.time()
     logger.info(
         f"Template search done!, using {template_end_time - template_start_time}"
     )
     logger.info(
-        f"Template result is saved at: {msa_for_template_search_dir}/hmmsearch.a3m"
+        f"Template result is saved at: {output_path}"
     )
 
 
 def update_template_info(
     json_data: list[dict[str, Any]],
+    out_dir: Optional[str] = None,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
@@ -168,6 +176,7 @@ def update_template_info(
 
     Args:
         json_data (list[dict[str, Any]]): The input JSON data.
+        out_dir (Optional[str]): Job output root for generated template hits.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
@@ -177,8 +186,10 @@ def update_template_info(
     """
     actual_updated = False
     for task_idx, infer_data in enumerate(json_data):
-        task_name = infer_data.get("name", f"task_{task_idx}")
-        for sequence in infer_data["sequences"]:
+        task_name = sanitise_job_name(
+            str(infer_data.get("name") or f"task_{task_idx}")
+        )
+        for sequence_idx, sequence in enumerate(infer_data["sequences"]):
             if "proteinChain" in sequence:
                 protein_chain = sequence["proteinChain"]
                 # Skip if templatesPath already exists and is valid
@@ -212,7 +223,15 @@ def update_template_info(
                             msa_names.append("non_pairing")
 
                         msa_name_str = ",".join(msa_names)
-                        template_path = os.path.join(msa_dir, "hmmsearch.a3m")
+                        if out_dir is None:
+                            template_path = os.path.join(msa_dir, "hmmsearch.a3m")
+                        else:
+                            template_path = os.path.join(
+                                out_dir,
+                                task_name,
+                                "msas",
+                                f"template_{sequence_idx}_hmmsearch.a3m",
+                            )
 
                         if not os.path.exists(template_path):
                             logger.info(
@@ -225,6 +244,7 @@ def update_template_info(
                                 hmmsearch_binary_path=hmmsearch_binary_path,
                                 hmmbuild_binary_path=hmmbuild_binary_path,
                                 seqres_database_path=seqres_database_path,
+                                output_path=template_path,
                             )
                         protein_chain["templatesPath"] = template_path
                         actual_updated = True

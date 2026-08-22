@@ -558,9 +558,10 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         logger.error(error_message)
         with open(opjoin(runner.error_dir, "error.txt"), "a", encoding="utf-8") as f:
             f.write(error_message)
-        return
+        raise RuntimeError(error_message) from e
 
     num_data = len(dataloader.dataset)
+    successful_predictions = 0
     t0_start = time.time()
     for seed in seeds:
         seed_everything(seed=seed, deterministic=configs.deterministic)
@@ -613,6 +614,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                         if v != "non-polymer"
                     },
                 )
+                successful_predictions += 1
                 t2_end = time.time()
                 logger.info(
                     f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] succeeded. "
@@ -636,6 +638,10 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         t1_end = time.time()
         logger.info(
             f"[Rank {DIST_WRAPPER.rank}] Seed {seed} completed in {t1_end - t1_start:.2f}s."
+        )
+    if successful_predictions == 0:
+        raise RuntimeError(
+            f"Inference produced no successful predictions for {configs.input_json_path}."
         )
     # Remove the error directory if it's empty
     if opexists(runner.error_dir):

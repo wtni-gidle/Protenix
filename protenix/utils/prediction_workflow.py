@@ -91,23 +91,22 @@ def run_prediction_workflow(
         raise ValueError(f"No inference job JSON found in: {input_path}")
     errors = {}
     workflow_inputs = input_jsons
-    if run_data_pipeline or write_input_json:
-        workflow_inputs = []
-        name_owners = {}
-        for input_json in input_jsons:
-            try:
-                input_names = prepared_job_names(input_json)
-            except Exception as exc:
-                errors[input_json] = str(exc)
-                continue
-            for safe_name in input_names:
-                if safe_name in name_owners:
-                    raise ValueError(
-                        "Duplicate prepared job name across input JSONs: "
-                        f"{safe_name!r} in {name_owners[safe_name]} and {input_json}"
-                    )
-                name_owners[safe_name] = input_json
-            workflow_inputs.append(input_json)
+    workflow_inputs = []
+    name_owners = {}
+    for input_json in input_jsons:
+        try:
+            input_names = prepared_job_names(input_json)
+        except Exception as exc:
+            errors[input_json] = str(exc)
+            continue
+        for safe_name in input_names:
+            if safe_name in name_owners:
+                raise ValueError(
+                    "Duplicate prepared job name across input JSONs: "
+                    f"{safe_name!r} in {name_owners[safe_name]} and {input_json}"
+                )
+            name_owners[safe_name] = input_json
+        workflow_inputs.append(input_json)
 
     ready_jsons = []
     deferred_cleanup = []

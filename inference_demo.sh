@@ -40,6 +40,8 @@
 #   --use_rna_msa (bool):    Enable RNA MSA features (v1.0.0+ only).
 #   --use_seeds_in_json:     Deprecated; JSON seeds are used automatically
 #                            when --model_seeds is omitted.
+#   --compress_full_confidence (bool): Write full confidence as compressed NPZ
+#                            instead of the native compact JSON.
 #   --use_tfg_guidance (bool): Use Training-Free Guidance (TFG) for inference.
 #
 # Available Models (Ref: configs/configs_model_type.py, docs/supported_models.md):

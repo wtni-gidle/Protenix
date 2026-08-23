@@ -13,8 +13,9 @@
 # limitations under the License.
 
 import os
+import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import Any
 
 import numpy as np
 import torch
@@ -22,7 +23,44 @@ from biotite.structure import AtomArray
 
 from protenix.data.utils import save_structure_cif
 from protenix.utils.file_io import save_json
-from protenix.utils.torch_utils import round_values
+from protenix.utils.input_json import sanitise_job_name
+
+
+def _rounded_copy(value: Any) -> Any:
+    """Return a rounded, CPU-backed copy without mutating ``value``."""
+    if isinstance(value, torch.Tensor):
+        tensor = value.detach()
+        if tensor.dtype == torch.bfloat16:
+            tensor = tensor.float()
+        array = tensor.cpu().numpy()
+        rounded = (
+            np.round(array, 2)
+            if np.issubdtype(array.dtype, np.inexact)
+            else array.copy()
+        )
+        return np.asarray(rounded).copy()
+    if isinstance(value, np.ndarray):
+        rounded = (
+            np.round(value, 2)
+            if np.issubdtype(value.dtype, np.inexact)
+            else value.copy()
+        )
+        return np.asarray(rounded).copy()
+    if isinstance(value, dict):
+        return {key: _rounded_copy(item) for key, item in value.items()}
+    if isinstance(value, list):
+        try:
+            array = np.asarray(value)
+            return (
+                np.round(array, 2).tolist()
+                if np.issubdtype(array.dtype, np.inexact)
+                else array.tolist()
+            )
+        except (TypeError, ValueError):
+            return [_rounded_copy(item) for item in value]
+    if isinstance(value, tuple):
+        return tuple(_rounded_copy(item) for item in value)
+    return value
 
 
 def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
@@ -36,13 +74,13 @@ def get_clean_full_confidence(full_confidence_dict: dict) -> dict:
     Returns:
         dict: The cleaned and formatted dictionary.
     """
-    # Remove atom_coordinate
-    full_confidence_dict.pop("atom_coordinate")
-    # Remove atom_is_polymer
-    full_confidence_dict.pop("atom_is_polymer")
-    # Keep two decimal places
-    full_confidence_dict = round_values(full_confidence_dict)
-    return full_confidence_dict
+    if not isinstance(full_confidence_dict, dict):
+        raise TypeError("Full confidence data must be a dictionary.")
+    return {
+        key: _rounded_copy(value)
+        for key, value in full_confidence_dict.items()
+        if key not in {"atom_coordinate", "atom_is_polymer"}
+    }
 
 
 class DataDumper:
@@ -52,7 +90,10 @@ class DataDumper:
     Args:
         base_dir (str): Base directory for saving dumped data.
         need_atom_confidence (bool): Whether to save detailed atom-level confidence data.
-        sorted_by_ranking_score (bool): Whether to sort output files by ranking score.
+        sorted_by_ranking_score (bool): Retained for API compatibility. Canonical
+            filenames always use the original model sample index.
+        compress_full_confidence (bool): Save full confidence as compressed NPZ
+            instead of JSON when atom confidence output is enabled.
     """
 
     def __init__(
@@ -60,10 +101,13 @@ class DataDumper:
         base_dir: str,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
-        self.base_dir = base_dir
+        self.base_dir = str(Path(base_dir).expanduser().resolve())
         self.need_atom_confidence = need_atom_confidence
         self.sorted_by_ranking_score = sorted_by_ranking_score
+        self.compress_full_confidence = compress_full_confidence
+        self._safe_name_owners: dict[str, str] = {}
 
     def dump(
         self,
@@ -85,27 +129,143 @@ class DataDumper:
             atom_array (AtomArray): The AtomArray object containing the structure data.
             entity_poly_type (dict[str, str]): The entity poly type information.
         """
-        dump_dir = self._get_dump_dir(dataset_name, pdb_id, seed)
-        Path(dump_dir).mkdir(parents=True, exist_ok=True)
-
+        job_name = sanitise_job_name(str(pdb_id))
+        owner = self._safe_name_owners.setdefault(job_name, str(pdb_id))
+        if owner != str(pdb_id):
+            raise ValueError(
+                "Distinct job names map to the same safe output name: "
+                f"{owner!r} and {pdb_id!r} -> {job_name!r}."
+            )
+        job_dir = self._get_dump_dir(dataset_name, job_name, seed)
         self.dump_predictions(
             pred_dict=pred_dict,
-            dump_dir=dump_dir,
-            pdb_id=pdb_id,
+            dump_dir=str(job_dir),
+            pdb_id=job_name,
             atom_array=atom_array,
             entity_poly_type=entity_poly_type,
             seed=seed,
         )
 
-    def _get_dump_dir(self, dataset_name: str, sample_name: str, seed: int) -> str:
+    def _get_dump_dir(
+        self, dataset_name: str, sample_name: str, seed: int
+    ) -> Path:
         """
         Generate the directory path for dumping data based on the dataset
         name, sample name, and seed.
         """
-        dump_dir = os.path.join(
-            self.base_dir, dataset_name, sample_name, f"seed_{seed}"
-        )
+        del dataset_name, seed
+        base_dir = Path(self.base_dir)
+        dump_dir = (base_dir / sample_name).resolve()
+        if base_dir != dump_dir and base_dir not in dump_dir.parents:
+            raise ValueError(f"Job output path escapes base directory: {dump_dir}")
         return dump_dir
+
+    @staticmethod
+    def _output_directory(job_dir: Path, directory_name: str) -> Path:
+        output_dir = job_dir / directory_name
+        output_dir.mkdir(parents=True, exist_ok=True)
+        resolved_job_dir = job_dir.resolve()
+        resolved_output_dir = output_dir.resolve()
+        if resolved_job_dir not in resolved_output_dir.parents:
+            raise ValueError(
+                f"Output directory escapes job directory: {resolved_output_dir}"
+            )
+        return resolved_output_dir
+
+    @staticmethod
+    def _temporary_path(final_path: Path) -> Path:
+        return final_path.with_name(
+            f".{final_path.stem}.{uuid.uuid4().hex}.tmp{final_path.suffix}"
+        )
+
+    @staticmethod
+    def _backup_path(final_path: Path) -> Path:
+        return final_path.with_name(
+            f".{final_path.name}.{uuid.uuid4().hex}.bak"
+        )
+
+    @classmethod
+    def _publish_sample(
+        cls,
+        temporary_paths: list[Path],
+        final_paths: list[Path],
+        canonical_paths: list[Path],
+    ) -> None:
+        """Publish one sample and restore pre-existing files on failure."""
+        backups: list[tuple[Path, Path]] = []
+        published_paths: list[Path] = []
+        try:
+            for final_path in canonical_paths:
+                if os.path.lexists(final_path):
+                    backup_path = cls._backup_path(final_path)
+                    os.replace(final_path, backup_path)
+                    backups.append((final_path, backup_path))
+
+            for temporary_path, final_path in zip(
+                temporary_paths, final_paths, strict=True
+            ):
+                os.replace(temporary_path, final_path)
+                published_paths.append(final_path)
+        except BaseException as publish_error:
+            rollback_errors = []
+            for published_path in reversed(published_paths):
+                try:
+                    published_path.unlink(missing_ok=True)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+            for final_path, backup_path in reversed(backups):
+                try:
+                    os.replace(backup_path, final_path)
+                except OSError as exc:
+                    rollback_errors.append(exc)
+            if rollback_errors:
+                raise RuntimeError(
+                    "Prediction output publication failed and rollback was "
+                    f"incomplete: {rollback_errors}"
+                ) from publish_error
+            raise
+        else:
+            for _, backup_path in backups:
+                backup_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _validate_samples(pred_dict: dict, need_full_data: bool) -> int:
+        if "coordinate" not in pred_dict or "summary_confidence" not in pred_dict:
+            raise ValueError(
+                "Prediction output must contain coordinate and summary_confidence."
+            )
+        try:
+            n_sample = len(pred_dict["coordinate"])
+            n_summary = len(pred_dict["summary_confidence"])
+        except TypeError as exc:
+            raise ValueError(
+                "Prediction sample outputs must be sized sequences."
+            ) from exc
+        if n_sample == 0:
+            raise ValueError("Prediction output contains no samples.")
+        if n_summary != n_sample:
+            raise ValueError(
+                "Prediction sample count mismatch: "
+                f"coordinate={n_sample}, summary_confidence={n_summary}."
+            )
+
+        full_data = pred_dict.get("full_data")
+        if full_data is None:
+            if need_full_data:
+                raise ValueError(
+                    "Full confidence output was requested but full_data is missing."
+                )
+        else:
+            try:
+                n_full_data = len(full_data)
+            except TypeError as exc:
+                raise ValueError("full_data must be a sized sequence.") from exc
+            if n_full_data != n_sample:
+                raise ValueError(
+                    "Prediction sample count mismatch: "
+                    f"coordinate={n_sample}, full_data={n_full_data}."
+                )
+        return n_sample
 
     def dump_predictions(
         self,
@@ -127,8 +287,17 @@ class DataDumper:
             entity_poly_type (dict[str, str]): Dictionary mapping entity IDs to their polymer types.
             seed (int): Random seed used for the prediction.
         """
-        prediction_save_dir = os.path.join(dump_dir, "predictions")
-        os.makedirs(prediction_save_dir, exist_ok=True)
+        n_sample = self._validate_samples(
+            pred_dict, need_full_data=self.need_atom_confidence
+        )
+        base_dir = Path(self.base_dir)
+        job_dir = Path(dump_dir).resolve()
+        if base_dir not in job_dir.parents:
+            raise ValueError(f"Job output path escapes base directory: {job_dir}")
+        job_dir.mkdir(parents=True, exist_ok=True)
+        models_dir = self._output_directory(job_dir, "models")
+        summary_dir = self._output_directory(job_dir, "summary_confidences")
+        full_data_dir = self._output_directory(job_dir, "full_data")
 
         # Dump structure
         b_factor = None
@@ -143,133 +312,73 @@ class DataDumper:
                         atom_plddt = atom_plddt.to(torch.float32)
                     all_atom_plddt.append(atom_plddt.cpu().numpy() * 100.0)
 
-            if len(all_atom_plddt) == len(pred_dict["full_data"]):
+            if len(all_atom_plddt) == n_sample:
                 b_factor = all_atom_plddt
-        sorted_indices = self._get_ranker_indices(data=pred_dict)
-        self._save_structure(
-            pred_coordinates=pred_dict["coordinate"],
-            prediction_save_dir=prediction_save_dir,
-            sample_name=pdb_id,
-            atom_array=atom_array,
-            entity_poly_type=entity_poly_type,
-            seed=seed,
-            sorted_indices=sorted_indices,
-            b_factor=b_factor,
-        )
-        # Dump confidence
-        self._save_confidence(
-            data=pred_dict,
-            prediction_save_dir=prediction_save_dir,
-            sample_name=pdb_id,
-            seed=seed,
-            sorted_indices=sorted_indices,
-        )
-
-    def _save_structure(
-        self,
-        pred_coordinates: torch.Tensor,
-        prediction_save_dir: str,
-        sample_name: str,
-        atom_array: AtomArray,
-        entity_poly_type: dict[str, str],
-        seed: int,
-        sorted_indices: Optional[List[int]],
-        b_factor: Optional[List[np.ndarray]] = None,
-    ):
-        """
-        Save predicted structures to CIF files.
-
-        Args:
-            pred_coordinates (torch.Tensor): Predicted coordinates [N_sample, N_atom, 3].
-            prediction_save_dir (str): Directory where to save the structures.
-            sample_name (str): Sample name.
-            atom_array (AtomArray): Template atom array.
-            entity_poly_type (dict[str, str]): Entity polymer types.
-            seed (int): Prediction seed.
-            sorted_indices (Optional[List[int]]): Indices for ranking.
-            b_factor (Optional[List[np.ndarray]]): Predicted LDDT scores to be saved as B-factors.
-        """
         assert atom_array is not None
-        N_sample = pred_coordinates.shape[0]
-        if sorted_indices is None:
-            sorted_indices = range(N_sample)  # do not rank the output file
-        for idx, rank in enumerate(sorted_indices):
-            output_fpath = os.path.join(
-                prediction_save_dir,
-                f"{sample_name}_sample_{rank}.cif",
+        for sample_index in range(n_sample):
+            prefix = f"seed-{seed}_sample-{sample_index}"
+            model_path = models_dir / f"{prefix}_model.cif"
+            summary_path = summary_dir / f"{prefix}_summary_confidences.json"
+            full_data_json_path = full_data_dir / f"{prefix}_full_data.json"
+            full_data_npz_path = full_data_dir / f"{prefix}_full_data.npz"
+            full_data_path = (
+                full_data_npz_path
+                if self.compress_full_confidence
+                else full_data_json_path
             )
-            if b_factor is not None:
-                # b_factor.shape == [N_sample, N_atom]
-                atom_array.set_annotation("b_factor", np.round(b_factor[idx], 2))
-
-            save_structure_cif(
-                atom_array=atom_array,
-                pred_coordinate=pred_coordinates[idx],
-                output_fpath=output_fpath,
-                entity_poly_type=entity_poly_type,
-                pdb_id=sample_name,
-            )
-
-    def _get_ranker_indices(self, data: dict) -> List[int]:
-        """
-        Get indices for ranking predictions based on their confidence scores.
-
-        Args:
-            data (dict): Prediction results containing summary confidence.
-
-        Returns:
-            List[int]: List of indices sorted by ranking score.
-        """
-        N_sample = len(data["summary_confidence"])
-        if self.sorted_by_ranking_score:
-            value = torch.tensor(
-                [
-                    data["summary_confidence"][i]["ranking_score"]
-                    for i in range(N_sample)
-                ]
-            )
-            sorted_indices = [
-                i for i in torch.argsort(torch.argsort(value, descending=True))
+            final_paths = [model_path, summary_path]
+            if self.need_atom_confidence:
+                final_paths.append(full_data_path)
+            canonical_paths = [
+                model_path,
+                summary_path,
+                full_data_json_path,
+                full_data_npz_path,
             ]
-        else:
-            sorted_indices = [i for i in range(N_sample)]
-        return sorted_indices
-
-    def _save_confidence(
-        self,
-        data: dict,
-        prediction_save_dir: str,
-        sample_name: str,
-        seed: int,
-        sorted_indices: Optional[List[int]],
-    ):
-        """
-        Save confidence data to JSON files.
-
-        Args:
-            data (dict): Prediction results containing confidence scores.
-            prediction_save_dir (str): Directory where to save the files.
-            sample_name (str): Sample name.
-            seed (int): Prediction seed.
-            sorted_indices (Optional[List[int]]): Indices for ranking.
-        """
-        N_sample = len(data["summary_confidence"])
-        for idx in range(N_sample):
-            if self.need_atom_confidence:
-                data["full_data"][idx] = get_clean_full_confidence(
-                    data["full_data"][idx]
-                )
-        if sorted_indices is None:
-            sorted_indices = range(N_sample)
-        for idx, rank in enumerate(sorted_indices):
-            output_fpath = os.path.join(
-                prediction_save_dir,
-                f"{sample_name}_summary_confidence_sample_{rank}.json",
+            temporary_paths = [self._temporary_path(path) for path in final_paths]
+            model_temporary_path = temporary_paths[0]
+            summary_temporary_path = temporary_paths[1]
+            full_data_temporary_path = (
+                temporary_paths[2] if self.need_atom_confidence else None
             )
-            save_json(data["summary_confidence"][idx], output_fpath, indent=4)
-            if self.need_atom_confidence:
-                output_fpath = os.path.join(
-                    prediction_save_dir,
-                    f"{sample_name}_full_data_sample_{rank}.json",
+
+            if b_factor is not None:
+                atom_array.set_annotation(
+                    "b_factor", np.round(b_factor[sample_index], 2)
                 )
-                save_json(data["full_data"][idx], output_fpath, indent=None)
+
+            try:
+                save_structure_cif(
+                    atom_array=atom_array,
+                    pred_coordinate=pred_dict["coordinate"][sample_index],
+                    output_fpath=str(model_temporary_path),
+                    entity_poly_type=entity_poly_type,
+                    pdb_id=pdb_id,
+                    save_wo_unresolved=False,
+                )
+                save_json(
+                    pred_dict["summary_confidence"][sample_index],
+                    str(summary_temporary_path),
+                    indent=4,
+                )
+                if self.need_atom_confidence:
+                    clean_full_data = get_clean_full_confidence(
+                        pred_dict["full_data"][sample_index]
+                    )
+                    if self.compress_full_confidence:
+                        with open(full_data_temporary_path, "wb") as f:
+                            np.savez_compressed(f, **clean_full_data)
+                    else:
+                        save_json(
+                            clean_full_data,
+                            str(full_data_temporary_path),
+                            indent=None,
+                        )
+                self._publish_sample(
+                    temporary_paths=temporary_paths,
+                    final_paths=final_paths,
+                    canonical_paths=canonical_paths,
+                )
+            finally:
+                for temporary_path in temporary_paths:
+                    temporary_path.unlink(missing_ok=True)

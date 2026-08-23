@@ -83,6 +83,9 @@ class InferenceRunner(object):
         self.init_dumper(
             need_atom_confidence=configs.need_atom_confidence,
             sorted_by_ranking_score=configs.sorted_by_ranking_score,
+            compress_full_confidence=configs.get(
+                "compress_full_confidence", False
+            ),
         )
 
     def init_env(self) -> None:
@@ -188,19 +191,26 @@ class InferenceRunner(object):
         self.print(f"Model parameters: {count_parameters(self.model):.2f}M")
 
     def init_dumper(
-        self, need_atom_confidence: bool = False, sorted_by_ranking_score: bool = True
+        self,
+        need_atom_confidence: bool = False,
+        sorted_by_ranking_score: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
         """
         Initialize the data dumper for saving predictions.
 
         Args:
             need_atom_confidence (bool): Whether to dump atom-level confidence.
-            sorted_by_ranking_score (bool): Whether to sort results by ranking score.
+            sorted_by_ranking_score (bool): Retained for configuration
+                compatibility; canonical filenames use raw sample indices.
+            compress_full_confidence (bool): Whether to write full confidence as
+                a compressed NPZ instead of JSON.
         """
         self.dumper = DataDumper(
             base_dir=self.dump_dir,
             need_atom_confidence=need_atom_confidence,
             sorted_by_ranking_score=sorted_by_ranking_score,
+            compress_full_confidence=compress_full_confidence,
         )
 
     # Adapted from runner.train.AF3Trainer.evaluate

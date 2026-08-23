@@ -441,6 +441,7 @@ def get_default_runner(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
+    compress_full_confidence: bool = False,
 ) -> Any:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -463,6 +464,7 @@ def get_default_runner(
         use_seeds_in_json (bool): Whether to use seeds defined in the JSON file.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
+        compress_full_confidence (bool): Write full confidence as compressed NPZ.
 
     Returns:
         InferenceRunner: An instance of InferenceRunner.
@@ -517,6 +519,7 @@ def get_default_runner(
     configs.use_rna_msa = use_rna_msa
     configs.use_seeds_in_json = use_seeds_in_json
     configs.need_atom_confidence = need_atom_confidence
+    configs.compress_full_confidence = compress_full_confidence
     if kalign_binary_path is not None:
         # The path provided by the user is expected to exist by default
         configs.data.template.kalign_binary_path = kalign_binary_path
@@ -609,6 +612,7 @@ def inference_jsons(
     write_input_json: bool = True,
     compress_fold_input: bool = False,
     model_seeds: Optional[list] = None,
+    compress_full_confidence: bool = False,
 ) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
@@ -650,6 +654,7 @@ def inference_jsons(
         compress_fold_input (bool): Compress materialized MSA/template resources.
         model_seeds (Optional[list]): Per-run seed override. If omitted, each
             job's modelSeeds is used, falling back to 101.
+        compress_full_confidence (bool): Write full confidence as compressed NPZ.
 
     Returns:
         List[str]: JSON paths that were prepared or sent to inference.
@@ -721,6 +726,7 @@ def inference_jsons(
             need_atom_confidence=need_atom_confidence,
             kalign_binary_path=kalign_binary_path,
             use_tfg_guidance=use_tfg_guidance,
+            compress_full_confidence=compress_full_confidence,
         )
 
     def infer_one(runner: Any, input_json: str) -> None:
@@ -976,6 +982,15 @@ def protenix_cli() -> None:
     help="Whether to compute atom-level confidence scores.",
 )
 @click.option(
+    "--compress_full_confidence",
+    type=bool,
+    default=False,
+    help=(
+        "Write Protenix full confidence as compressed NPZ instead of JSON. "
+        "Only applies when need_atom_confidence is true."
+    ),
+)
+@click.option(
     "--kalign_binary_path",
     type=str,
     default=None,
@@ -1072,6 +1087,7 @@ def predict(
     use_rna_msa: bool,
     use_seeds_in_json: bool,
     need_atom_confidence: bool,
+    compress_full_confidence: bool,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
@@ -1113,6 +1129,7 @@ def predict(
         use_rna_msa (bool): Use RNA MSA.
         use_seeds_in_json (bool): Use seeds from JSON.
         need_atom_confidence (bool): Compute atom-level confidence scores.
+        compress_full_confidence (bool): Write full confidence as compressed NPZ.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -1240,6 +1257,7 @@ def predict(
         use_rna_msa=use_rna_msa,
         use_seeds_in_json=use_seeds_in_json,
         need_atom_confidence=need_atom_confidence,
+        compress_full_confidence=compress_full_confidence,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,

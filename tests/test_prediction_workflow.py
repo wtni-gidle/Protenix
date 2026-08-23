@@ -395,6 +395,36 @@ class TestPredictionWorkflow(unittest.TestCase):
         self.assertFalse(preprocess_called)
         self.assertFalse((self.tmp_path / "output").exists())
 
+    def test_inference_only_duplicate_safe_names_fail_before_runner(self):
+        input_dir = self.tmp_path / "inputs"
+        self._write_json(
+            input_dir / "a.json", [{"name": "same job", "sequences": []}]
+        )
+        self._write_json(
+            input_dir / "b.json", [{"name": "same_job", "sequences": []}]
+        )
+        runner_created = False
+
+        def create_runner():
+            nonlocal runner_created
+            runner_created = True
+            return object()
+
+        with self.assertRaisesRegex(ValueError, "Duplicate prepared job name"):
+            run_prediction_workflow(
+                input_dir,
+                self.tmp_path / "output",
+                run_data_pipeline=False,
+                run_inference=True,
+                write_input_json=False,
+                preprocess_input=lambda path: path,
+                create_runner=create_runner,
+                infer_input=lambda _runner, _path: None,
+            )
+
+        self.assertFalse(runner_created)
+        self.assertFalse((self.tmp_path / "output").exists())
+
     def test_output_nested_in_input_directory_is_not_rediscovered(self):
         input_path, _ = self._make_input("nested output job")
         input_dir = input_path.parent

@@ -94,9 +94,13 @@ class TestPredictionWorkflow(unittest.TestCase):
         self.assertEqual(errors, {})
         self.assertEqual([event[0] for event in events], ["preprocess", "create_runner", "infer"])
         loaded = load_input_json(expected)
+        bundled_msa = Path(
+            loaded[0]["sequences"][0]["proteinChain"]["unpairedMsaPath"]
+        )
+        self.assertTrue(bundled_msa.is_relative_to(expected.parent))
         self.assertEqual(
-            loaded[0]["sequences"][0]["proteinChain"]["unpairedMsaPath"],
-            str(msa_path),
+            bundled_msa.read_text(encoding="utf-8"),
+            msa_path.read_text(encoding="utf-8"),
         )
 
     def test_data_only_writes_stable_prepared_json_without_runner(self):
@@ -153,6 +157,7 @@ class TestPredictionWorkflow(unittest.TestCase):
             self.tmp_path / "output",
             run_data_pipeline=False,
             run_inference=True,
+            write_input_json=False,
             preprocess_input=fail_preprocess,
             create_runner=lambda: runner,
             infer_input=lambda active_runner, path: inferred.append(
@@ -164,6 +169,147 @@ class TestPredictionWorkflow(unittest.TestCase):
         self.assertEqual(inferred, [(runner, str(input_path.resolve()))])
         self.assertEqual(errors, {})
         self.assertFalse((self.tmp_path / "output").exists())
+
+    def test_data_only_without_write_publishes_nothing_and_cleans_temporary_json(self):
+        input_path, _ = self._make_input()
+        output_dir = self.tmp_path / "output"
+        temporary_json = output_dir / ".protenix_tmp/processed.json"
+
+        def preprocess(_path: str) -> str:
+            self._write_json(
+                temporary_json,
+                [{"name": "workflow job", "sequences": []}],
+            )
+            return str(temporary_json)
+
+        ready, errors = run_prediction_workflow(
+            input_path,
+            output_dir,
+            run_data_pipeline=True,
+            run_inference=False,
+            write_input_json=False,
+            compress_fold_input=True,
+            preprocess_input=preprocess,
+            create_runner=lambda: self.fail("Runner must not be created."),
+            infer_input=lambda _runner, _path: self.fail("Inference must not run."),
+        )
+
+        self.assertEqual(ready, [])
+        self.assertEqual(errors, {})
+        self.assertFalse(temporary_json.exists())
+        self.assertFalse((output_dir / ".protenix_tmp").exists())
+        self.assertEqual(list(output_dir.rglob("*_data.json")), [])
+
+    def test_combined_without_write_infers_from_temporary_json_then_cleans_it(self):
+        input_path, _ = self._make_input()
+        output_dir = self.tmp_path / "output"
+        temporary_json = output_dir / ".protenix_tmp/processed.json"
+        inferred = []
+
+        def preprocess(_path: str) -> str:
+            self._write_json(
+                temporary_json,
+                [{"name": "workflow job", "sequences": []}],
+            )
+            return str(temporary_json)
+
+        def infer(_runner, path: str) -> None:
+            self.assertTrue(Path(path).is_file())
+            self.assertEqual(list(output_dir.rglob("*_data.json")), [])
+            inferred.append(path)
+
+        ready, errors = run_prediction_workflow(
+            input_path,
+            output_dir,
+            run_data_pipeline=True,
+            run_inference=True,
+            write_input_json=False,
+            compress_fold_input=True,
+            preprocess_input=preprocess,
+            create_runner=lambda: object(),
+            infer_input=infer,
+        )
+
+        self.assertEqual(ready, [str(temporary_json)])
+        self.assertEqual(inferred, [str(temporary_json)])
+        self.assertEqual(errors, {})
+        self.assertFalse(temporary_json.exists())
+        self.assertFalse((output_dir / ".protenix_tmp").exists())
+
+    def test_combined_without_write_cleans_temporary_json_if_runner_fails(self):
+        input_path, _ = self._make_input()
+        output_dir = self.tmp_path / "output"
+        temporary_json = output_dir / ".protenix_tmp/processed.json"
+
+        def preprocess(_path: str) -> str:
+            self._write_json(
+                temporary_json,
+                [{"name": "workflow job", "sequences": []}],
+            )
+            return str(temporary_json)
+
+        def fail_runner():
+            raise RuntimeError("runner failed")
+
+        with self.assertRaisesRegex(RuntimeError, "runner failed"):
+            run_prediction_workflow(
+                input_path,
+                output_dir,
+                run_data_pipeline=True,
+                run_inference=True,
+                write_input_json=False,
+                preprocess_input=preprocess,
+                create_runner=fail_runner,
+                infer_input=lambda _runner, _path: None,
+            )
+
+        self.assertFalse(temporary_json.exists())
+        self.assertFalse((output_dir / ".protenix_tmp").exists())
+
+    def test_inference_only_with_write_publishes_bundle_before_inference(self):
+        input_path, _ = self._make_input()
+        output_dir = self.tmp_path / "output"
+        prepared_path = output_dir / "workflow_job/workflow_job_data.json"
+        events = []
+
+        def write_bundle(path, out_dir, *, compress_fold_input):
+            events.append(("write", path, out_dir, compress_fold_input))
+            self._write_json(
+                prepared_path,
+                [{"name": "workflow job", "sequences": []}],
+            )
+            return [str(prepared_path)]
+
+        def infer(_runner, path: str) -> None:
+            events.append(("infer", path))
+
+        with mock.patch(
+            "protenix.utils.prediction_workflow.write_prepared_input_jsons",
+            write_bundle,
+        ):
+            ready, errors = run_prediction_workflow(
+                input_path,
+                output_dir,
+                run_data_pipeline=False,
+                run_inference=True,
+                write_input_json=True,
+                compress_fold_input=True,
+                preprocess_input=lambda _path: self.fail(
+                    "Preprocessing must not run."
+                ),
+                create_runner=lambda: object(),
+                infer_input=infer,
+            )
+
+        self.assertEqual(ready, [str(prepared_path)])
+        self.assertEqual(errors, {})
+        self.assertEqual(
+            events,
+            [
+                ("write", str(input_path.resolve()), output_dir, True),
+                ("infer", str(prepared_path)),
+            ],
+        )
 
     def test_disabling_both_stages_fails_before_input_or_output_access(self):
         output_dir = self.tmp_path / "output"
@@ -215,6 +361,7 @@ class TestPredictionWorkflow(unittest.TestCase):
             self.tmp_path / "output",
             run_data_pipeline=False,
             run_inference=True,
+            write_input_json=False,
             preprocess_input=lambda path: path,
             create_runner=lambda: object(),
             infer_input=fail_inference,

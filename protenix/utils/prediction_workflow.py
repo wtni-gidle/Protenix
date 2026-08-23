@@ -49,6 +49,8 @@ def run_prediction_workflow(
     *,
     run_data_pipeline: bool,
     run_inference: bool,
+    write_input_json: bool = True,
+    compress_fold_input: bool = False,
     preprocess_input: Callable[[str], str],
     create_runner: Callable[[], Any],
     infer_input: Callable[[Any, str], None],
@@ -62,7 +64,7 @@ def run_prediction_workflow(
     input_jsons = discover_input_jsons(input_path)
     input_root = Path(input_path).expanduser().resolve()
     output_root = Path(output_dir).expanduser().resolve()
-    if run_data_pipeline and input_root.is_dir():
+    if (run_data_pipeline or write_input_json) and input_root.is_dir():
         filtered_jsons = []
         for input_json in input_jsons:
             candidate = Path(input_json).resolve()
@@ -85,7 +87,7 @@ def run_prediction_workflow(
         raise ValueError(f"No inference job JSON found in: {input_path}")
     errors = {}
     workflow_inputs = input_jsons
-    if run_data_pipeline:
+    if run_data_pipeline or write_input_json:
         workflow_inputs = []
         name_owners = {}
         for input_json in input_jsons:
@@ -104,30 +106,53 @@ def run_prediction_workflow(
             workflow_inputs.append(input_json)
 
     ready_jsons = []
+    deferred_cleanup = []
     for input_json in workflow_inputs:
         try:
+            processed_json = input_json
             if run_data_pipeline:
                 processed_json = preprocess_input(input_json)
+
+            if write_input_json:
                 try:
                     ready_jsons.extend(
-                        write_prepared_input_jsons(processed_json, output_dir)
+                        write_prepared_input_jsons(
+                            processed_json,
+                            output_dir,
+                            compress_fold_input=compress_fold_input,
+                        )
                     )
                 finally:
-                    _remove_intermediate_json(processed_json, input_json, output_dir)
-            else:
-                ready_jsons.append(input_json)
+                    if run_data_pipeline:
+                        _remove_intermediate_json(
+                            processed_json, input_json, output_dir
+                        )
+            elif run_inference:
+                # Keep a private prepared JSON alive until inference has consumed
+                # it. Inference-only inputs are never modified or cleaned up.
+                if run_data_pipeline:
+                    deferred_cleanup.append((processed_json, input_json))
+                ready_jsons.append(processed_json)
+            elif run_data_pipeline:
+                # Data-only with write_input_json=False intentionally publishes
+                # no artifact, but private preprocessing output must not leak.
+                _remove_intermediate_json(processed_json, input_json, output_dir)
         except Exception as exc:
             errors[input_json] = str(exc)
 
-    if run_inference and ready_jsons:
-        runner = create_runner()
-        successful_jsons = []
-        for ready_json in ready_jsons:
-            try:
-                infer_input(runner, ready_json)
-                successful_jsons.append(ready_json)
-            except Exception as exc:
-                errors[ready_json] = str(exc)
-        ready_jsons = successful_jsons
+    try:
+        if run_inference and ready_jsons:
+            runner = create_runner()
+            successful_jsons = []
+            for ready_json in ready_jsons:
+                try:
+                    infer_input(runner, ready_json)
+                    successful_jsons.append(ready_json)
+                except Exception as exc:
+                    errors[ready_json] = str(exc)
+            ready_jsons = successful_jsons
+    finally:
+        for processed_json, input_json in deferred_cleanup:
+            _remove_intermediate_json(processed_json, input_json, output_dir)
 
     return ready_jsons, errors

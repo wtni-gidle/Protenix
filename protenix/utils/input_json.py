@@ -22,6 +22,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
 
+from protenix.utils.text_io import read_text
+
 
 def resolve_path_from_json(path: str, json_path: str | os.PathLike[str]) -> str:
     """Resolve a resource path relative to the JSON file that declares it."""
@@ -124,8 +126,7 @@ def load_template_json(json_path: str | os.PathLike[str]) -> Any:
         if isinstance(mmcif_path, str) and mmcif_path:
             resolved_path = resolve_path_from_json(mmcif_path, json_path)
             template["mmcifPath"] = resolved_path
-            with open(resolved_path, "r", encoding="utf-8") as f:
-                template["mmcif"] = f.read()
+            template["mmcif"] = read_text(resolved_path)
     return templates
 
 
@@ -190,8 +191,11 @@ def prepared_job_names(
 def write_prepared_input_jsons(
     input_json_path: str | os.PathLike[str],
     output_dir: str | os.PathLike[str],
+    compress_fold_input: bool = False,
 ) -> list[str]:
-    """Write one path-stable prepared JSON for each input job."""
+    """Write one portable prepared bundle for each input job."""
+    from protenix.utils.fold_input_bundle import materialise_fold_input_job
+
     jobs = load_input_json(input_json_path)
     safe_names = prepared_job_names(input_json_path)
     output_root = Path(output_dir).expanduser().resolve()
@@ -201,7 +205,15 @@ def write_prepared_input_jsons(
         prepared_path = job_dir / f"{safe_name}_data.json"
         if output_root not in prepared_path.resolve().parents:
             raise ValueError(f"Prepared path escapes output directory: {prepared_path}")
-        prepared_job = make_input_json_paths_relative([job], prepared_path)
+        materialised_job = materialise_fold_input_job(
+            job,
+            job_dir,
+            safe_name,
+            compress_fold_input=compress_fold_input,
+        )
+        prepared_job = make_input_json_paths_relative(
+            [materialised_job], prepared_path
+        )
         prepared_jobs.append((job_dir, prepared_path, prepared_job))
 
     prepared_paths = []

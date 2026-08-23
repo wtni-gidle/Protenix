@@ -41,6 +41,7 @@ from protenix.data.utils import pad_to
 from protenix.utils.file_io import load_json_cached
 from protenix.utils.input_json import load_template_json
 from protenix.utils.logger import get_logger
+from protenix.utils.text_io import read_text, uncompressed_suffix
 
 logger = get_logger(__name__)
 
@@ -715,12 +716,12 @@ class InferenceTemplateFeaturizer:
                     results = online_template_featurizer.parse_json_templates(json_list, seq)
                     templates = results.features
                 else:
-                    with open(t_path, "r") as f:
-                        content = f.read()
+                    content = read_text(t_path)
+                    template_suffix = uncompressed_suffix(t_path)
 
-                    if t_path.endswith(".hhr"):
+                    if template_suffix == ".hhr":
                         hits = HHRParser.parse(hhr_string=content)
-                    elif t_path.endswith(".a3m"):
+                    elif template_suffix == ".a3m":
                         hits = HmmsearchA3MParser.parse(
                             query_seq=seq, a3m_str=content, skip_first=False
                         )

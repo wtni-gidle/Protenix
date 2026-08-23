@@ -488,6 +488,8 @@ def inference_jsons(
     nhmmer_n_cpu: Optional[int] = None,
     run_data_pipeline: bool = True,
     run_inference: bool = True,
+    write_input_json: bool = True,
+    compress_fold_input: bool = False,
 ) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
@@ -525,6 +527,8 @@ def inference_jsons(
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
         run_data_pipeline (bool): Run MSA/template preprocessing.
         run_inference (bool): Run model inference.
+        write_input_json (bool): Publish a prepared input bundle.
+        compress_fold_input (bool): Compress materialized MSA/template resources.
 
     Returns:
         List[str]: JSON paths that were prepared or sent to inference.
@@ -596,6 +600,8 @@ def inference_jsons(
             output_dir=out_dir,
             run_data_pipeline=run_data_pipeline,
             run_inference=run_inference,
+            write_input_json=write_input_json,
+            compress_fold_input=compress_fold_input,
             preprocess_input=preprocess_one,
             create_runner=create_runner,
             infer_input=infer_one,
@@ -604,10 +610,13 @@ def inference_jsons(
         raise RuntimeError(f"Can not read a special file: {json_file}") from exc
 
     logger.info(
-        "Workflow completed with %d ready JSON(s); data_pipeline=%s, inference=%s",
+        "Workflow completed with %d ready JSON(s); data_pipeline=%s, "
+        "inference=%s, write_input_json=%s, compress_fold_input=%s",
         len(ready_jsons),
         run_data_pipeline,
         run_inference,
+        write_input_json,
+        compress_fold_input,
     )
     if inference_errors:
         logger.warning(f"Run prediction workflow failed: {inference_errors}")
@@ -670,6 +679,18 @@ def protenix_cli() -> None:
     type=bool,
     default=True,
     help="Run model inference.",
+)
+@click.option(
+    "--write_input_json",
+    type=bool,
+    default=True,
+    help="Write a normalized prepared input bundle.",
+)
+@click.option(
+    "--compress_fold_input",
+    type=bool,
+    default=False,
+    help="Compress materialized MSA and template resources in the input bundle.",
 )
 @click.option("-s", "--seeds", type=str, default="101", help="Seeds (comma-separated).")
 @click.option("-c", "--cycle", type=int, default=10, help="Pairformer cycle number.")
@@ -835,6 +856,8 @@ def predict(
     out_dir: str,
     run_data_pipeline: bool,
     run_inference: bool,
+    write_input_json: bool,
+    compress_fold_input: bool,
     seeds: str,
     cycle: int,
     step: int,
@@ -874,6 +897,8 @@ def predict(
         out_dir (str): Output directory for results.
         run_data_pipeline (bool): Run MSA/template preprocessing.
         run_inference (bool): Run model inference.
+        write_input_json (bool): Publish a prepared input bundle.
+        compress_fold_input (bool): Compress materialized MSA/template resources.
         seeds (str): Comma-separated seeds.
         cycle (int): Number of cycles.
         step (int): Number of diffusion steps.
@@ -1039,6 +1064,8 @@ def predict(
         nhmmer_n_cpu=nhmmer_n_cpu,
         run_data_pipeline=run_data_pipeline,
         run_inference=run_inference,
+        write_input_json=write_input_json,
+        compress_fold_input=compress_fold_input,
     )
 
 

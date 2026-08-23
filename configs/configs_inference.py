@@ -25,6 +25,8 @@ inference_configs = {
     "dump_dir": "./output",
     "need_atom_confidence": False,
     "compress_full_confidence": False,
+    "skip": False,
+    "write_now": True,
     # Retained for configuration compatibility; output names use raw sample index.
     "sorted_by_ranking_score": True,
     "input_json_path": RequiredValue(str),

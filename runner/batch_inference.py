@@ -42,6 +42,7 @@ from protenix.utils.input_json import (
 )
 from protenix.utils.logger import get_logger
 from protenix.utils.model_seeds import parse_model_seeds, resolve_model_seeds
+from protenix.utils.prediction_resume import incomplete_model_seeds
 from protenix.utils.prediction_workflow import run_prediction_workflow
 from protenix.version import __version__
 from rdkit import Chem
@@ -163,6 +164,27 @@ def _run_infer_predict(runner: Any, configs: Any) -> None:
     from runner.inference import infer_predict
 
     infer_predict(runner, configs)
+
+
+class _LazyInferenceRunner:
+    """Initialize and cache the heavyweight inference runner on first use."""
+
+    def __init__(self, factory: Any) -> None:
+        self._factory = factory
+        self._runner = None
+        self._initialization_error: Optional[Exception] = None
+        self._initialization_attempted = False
+
+    def get(self) -> Any:
+        if not self._initialization_attempted:
+            self._initialization_attempted = True
+            try:
+                self._runner = self._factory()
+            except Exception as exc:
+                self._initialization_error = exc
+        if self._initialization_error is not None:
+            raise self._initialization_error
+        return self._runner
 
 
 def preprocess_input(
@@ -442,6 +464,8 @@ def get_default_runner(
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
     compress_full_confidence: bool = False,
+    skip: bool = False,
+    write_now: bool = True,
 ) -> Any:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -465,6 +489,8 @@ def get_default_runner(
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Whether to use TFG guidance.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
+        skip (bool): Skip seeds whose complete canonical outputs already exist.
+        write_now (bool): Compatibility flag for synchronous prediction writes.
 
     Returns:
         InferenceRunner: An instance of InferenceRunner.
@@ -520,6 +546,8 @@ def get_default_runner(
     configs.use_seeds_in_json = use_seeds_in_json
     configs.need_atom_confidence = need_atom_confidence
     configs.compress_full_confidence = compress_full_confidence
+    configs.skip = skip
+    configs.write_now = write_now
     if kalign_binary_path is not None:
         # The path provided by the user is expected to exist by default
         configs.data.template.kalign_binary_path = kalign_binary_path
@@ -613,6 +641,8 @@ def inference_jsons(
     compress_fold_input: bool = False,
     model_seeds: Optional[list] = None,
     compress_full_confidence: bool = False,
+    skip: bool = False,
+    write_now: bool = True,
 ) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
@@ -655,6 +685,8 @@ def inference_jsons(
         model_seeds (Optional[list]): Per-run seed override. If omitted, each
             job's modelSeeds is used, falling back to 101.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
+        skip (bool): Skip seeds whose complete canonical outputs already exist.
+        write_now (bool): Compatibility flag for synchronous prediction writes.
 
     Returns:
         List[str]: JSON paths that were prepared or sent to inference.
@@ -673,6 +705,11 @@ def inference_jsons(
             logger.warning(
                 "use_seeds_in_json is deprecated: modelSeeds is now used "
                 "automatically when no model_seeds CLI/API override is supplied."
+            )
+        if not write_now:
+            logger.warning(
+                "write_now=False was requested, but Protenix always writes each "
+                "prediction synchronously; synchronous writing remains enabled."
             )
 
     def preprocess_one(input_json: str) -> str:
@@ -705,7 +742,7 @@ def inference_jsons(
             _remove_private_preprocess_artifacts(temporary_json)
             raise
 
-    def create_runner() -> Any:
+    def create_materialized_runner() -> Any:
         inference_configs["dump_dir"] = out_dir
         return get_default_runner(
             seeds=model_seed_override,
@@ -727,9 +764,14 @@ def inference_jsons(
             kalign_binary_path=kalign_binary_path,
             use_tfg_guidance=use_tfg_guidance,
             compress_full_confidence=compress_full_confidence,
+            skip=skip,
+            write_now=write_now,
         )
 
-    def infer_one(runner: Any, input_json: str) -> None:
+    def create_runner() -> _LazyInferenceRunner:
+        return _LazyInferenceRunner(create_materialized_runner)
+
+    def infer_one(runner_holder: _LazyInferenceRunner, input_json: str) -> None:
         jobs = load_input_json(input_json)
         if not isinstance(jobs, list) or not jobs:
             raise ValueError("Inference input must contain at least one job.")
@@ -746,6 +788,28 @@ def inference_jsons(
             active_json = input_json
             job_name = str(job.get("name") or f"job_{job_index}")
             try:
+                active_seeds = resolve_model_seeds(
+                    job, override=model_seed_override
+                )
+                if skip:
+                    active_seeds = incomplete_model_seeds(
+                        out_dir,
+                        job_name,
+                        active_seeds,
+                        n_sample,
+                        need_atom_confidence=need_atom_confidence,
+                        compress_full_confidence=compress_full_confidence,
+                    )
+                    if not active_seeds:
+                        logger.info(
+                            "Skipping %s: all requested model seed outputs are "
+                            "complete.",
+                            job_name,
+                        )
+                        successful_jobs += 1
+                        continue
+
+                runner = runner_holder.get()
                 if len(jobs) > 1:
                     private_job_path = _write_private_single_job_json(
                         job,
@@ -753,12 +817,14 @@ def inference_jsons(
                         job_index=job_index,
                     )
                     active_json = str(private_job_path)
-                active_seeds = resolve_model_seeds(
-                    job, override=model_seed_override
-                )
                 runner.configs["seeds"] = active_seeds
                 runner.configs["use_seeds_in_json"] = False
                 runner.configs["input_json_path"] = active_json
+                # This job was already checked before materializing the runner.
+                # Keep infer_predict's skip path for direct-runner callers only.
+                runner.configs["skip"] = False
+                if not write_now:
+                    runner.configs["_write_now_warning_emitted"] = True
                 logger.info("Using model seeds for %s: %s", job_name, active_seeds)
                 _run_infer_predict(runner, runner.configs)
                 successful_jobs += 1
@@ -991,6 +1057,21 @@ def protenix_cli() -> None:
     ),
 )
 @click.option(
+    "--skip",
+    type=bool,
+    default=False,
+    help="Skip model seeds whose complete canonical outputs already exist.",
+)
+@click.option(
+    "--write_now",
+    type=bool,
+    default=True,
+    help=(
+        "Write predictions synchronously. False is accepted for compatibility "
+        "but synchronous writing remains enabled."
+    ),
+)
+@click.option(
     "--kalign_binary_path",
     type=str,
     default=None,
@@ -1100,6 +1181,8 @@ def predict(
     rfam_database_path: Optional[str] = None,
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
+    skip: bool = False,
+    write_now: bool = True,
 ) -> None:
     """
     Run predictions with Protenix using various input formats.
@@ -1130,6 +1213,8 @@ def predict(
         use_seeds_in_json (bool): Use seeds from JSON.
         need_atom_confidence (bool): Compute atom-level confidence scores.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
+        skip (bool): Skip seeds whose complete canonical outputs already exist.
+        write_now (bool): Compatibility flag for synchronous prediction writes.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
@@ -1258,6 +1343,8 @@ def predict(
         use_seeds_in_json=use_seeds_in_json,
         need_atom_confidence=need_atom_confidence,
         compress_full_confidence=compress_full_confidence,
+        skip=skip,
+        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,

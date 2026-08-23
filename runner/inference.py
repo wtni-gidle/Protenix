@@ -559,6 +559,71 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     else:
         seeds = configs.seeds
 
+    seeds = list(seeds)
+    if not configs.get("write_now", True) and not configs.get(
+        "_write_now_warning_emitted", False
+    ):
+        logger.warning(
+            "write_now=False was requested, but Protenix always writes each "
+            "prediction synchronously; synchronous writing remains enabled."
+        )
+        configs["_write_now_warning_emitted"] = True
+
+    if configs.get("skip", False):
+        from protenix.utils.prediction_resume import (
+            incomplete_model_seeds,
+            total_prediction_samples,
+        )
+
+        requested_seeds = seeds
+        incomplete_seed_set = set()
+        num_samples = total_prediction_samples(
+            configs.sample_diffusion.N_sample,
+            configs.model.get("N_model_seed", 1),
+        )
+        can_check_all_jobs = all(
+            isinstance(job, dict)
+            and isinstance(job.get("name"), str)
+            and bool(job["name"].strip())
+            for job in json_data
+        )
+        if can_check_all_jobs:
+            for job in json_data:
+                incomplete_seed_set.update(
+                    incomplete_model_seeds(
+                        configs.dump_dir,
+                        job["name"],
+                        requested_seeds,
+                        num_samples,
+                        need_atom_confidence=configs.get(
+                            "need_atom_confidence", False
+                        ),
+                        compress_full_confidence=configs.get(
+                            "compress_full_confidence", False
+                        ),
+                    )
+                )
+            seeds = [seed for seed in requested_seeds if seed in incomplete_seed_set]
+        else:
+            logger.warning(
+                "Skip completeness checks require every input job to have a "
+                "non-empty string name; continuing with all requested seeds."
+            )
+
+        if not seeds:
+            logger.info(
+                "Skipping inference: all requested model seed outputs are complete."
+            )
+            if opexists(runner.error_dir):
+                try:
+                    if not os.listdir(runner.error_dir):
+                        os.rmdir(runner.error_dir)
+                except Exception:
+                    pass
+            return
+        if seeds != requested_seeds:
+            logger.info("Incomplete model seeds selected for inference: %s", seeds)
+
     try:
         dataloader = get_inference_dataloader(configs=configs)
     except Exception as e:

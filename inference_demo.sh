@@ -42,6 +42,9 @@
 #                            when --model_seeds is omitted.
 #   --compress_full_confidence (bool): Write full confidence as compressed NPZ
 #                            instead of the native compact JSON.
+#   --skip (bool):           Skip model seeds with complete canonical outputs.
+#   --write_now (bool):      Native writes are synchronous; false is accepted
+#                            for compatibility and emits a warning.
 #   --use_tfg_guidance (bool): Use Training-Free Guidance (TFG) for inference.
 #
 # Available Models (Ref: configs/configs_model_type.py, docs/supported_models.md):

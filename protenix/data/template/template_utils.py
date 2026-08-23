@@ -57,6 +57,7 @@ from protenix.data.template.template_parser import (
     TemplateParser,
     TemplateSearchResult,
 )
+from protenix.data.template.template_finalizer import validate_template_mapping
 from protenix.data.tools.kalign import Kalign
 from protenix.utils.logger import get_logger
 
@@ -876,17 +877,41 @@ class TemplateHitFeaturizer:
             mmcif_str = template_info.get("mmcif", "")
             q_indices = template_info.get("queryIndices", [])
             t_indices = template_info.get("templateIndices", [])
-            
-            if not mmcif_str or len(q_indices) != len(t_indices):
+
+            if not mmcif_str:
                 errors.append(f"Invalid template info at index {idx}")
                 continue
-                
-            mapping = {q: t for q, t in zip(q_indices, t_indices)}
-            
+
             try:
-                res = TemplateParser.parse_simple_cif(
-                    file_id=f"temp_{idx}", mmcif_string=mmcif_str
+                validate_template_mapping(
+                    q_indices,
+                    t_indices,
+                    query_length=len(query_sequence),
+                    template_length=None,
                 )
+            except (TypeError, ValueError) as e:
+                errors.append(f"Invalid template mapping at index {idx}: {e}")
+                continue
+
+            mapping = dict(zip(q_indices, t_indices))
+            chain_id_hint = template_info.get("chainId")
+            domain_name = template_info.get("domainName", f"temp_{idx}")
+            sum_probability = template_info.get("sumProbability", 1.0)
+            release_date = template_info.get("releaseDate", "9999-12-31")
+
+            try:
+                if chain_id_hint:
+                    res = TemplateParser.parse(
+                        file_id=str(domain_name).split("_", 1)[0],
+                        mmcif_string=mmcif_str,
+                        auth_chain_id=str(chain_id_hint),
+                    )
+                else:
+                    # Backwards compatibility for existing simplified explicit
+                    # templates, which historically selected the first chain.
+                    res = TemplateParser.parse_simple_cif(
+                        file_id=f"temp_{idx}", mmcif_string=mmcif_str
+                    )
                 if not res.mmcif_object:
                     errors.append(f"No mmcif object generated for index {idx}. Errors: {res.errors}")
                     continue
@@ -895,16 +920,31 @@ class TemplateHitFeaturizer:
                 if not chain_ids:
                     errors.append(f"No valid chain found in mmCIF at index {idx}")
                     continue
-                chain_id = chain_ids[0]
+                if chain_id_hint:
+                    if str(chain_id_hint) not in chain_ids:
+                        errors.append(
+                            f"Chain {chain_id_hint} not found in mmCIF at index {idx}"
+                        )
+                        continue
+                    chain_id = str(chain_id_hint)
+                else:
+                    chain_id = chain_ids[0]
                 template_seq = res.mmcif_object.chain_to_seqres[chain_id]
-                
+
+                validate_template_mapping(
+                    q_indices,
+                    t_indices,
+                    query_length=len(query_sequence),
+                    template_length=len(template_seq),
+                )
+
                 all_pos, all_mask = self._hit_processor._get_atom_positions(
                     res.mmcif_object, chain_id, 150.0, self._zero_center_positions
                 )
             except Exception as e:
                 errors.append(f"Failed to parse mmCIF at index {idx}: {e}")
                 continue
-                
+
             out_pos = np.zeros((num_query, ATOM37_NUM, 3), dtype=np.float32)
             out_mask = np.zeros((num_query, ATOM37_NUM), dtype=np.float32)
             out_seq = ["-"] * num_query
@@ -924,31 +964,33 @@ class TemplateHitFeaturizer:
                 "template_sequence": out_seq_str.encode(),
                 "template_aatype": np.array(aatype, dtype=np.int32),
                 "template_domain_names": np.array(
-                    f"temp_{idx}".encode(), dtype=object
+                    str(domain_name).encode(), dtype=object
                 ),
-                "template_sum_probs": [1.0],
-                "template_release_date": np.array(b"9999-12-31", dtype=object)
+                "template_sum_probs": [float(sum_probability)],
+                "template_release_date": np.array(
+                    str(release_date).encode(), dtype=object
+                )
             }
             features_list.append(features)
-            
+
             q_indices_hit = list(range(num_query))
             h_indices_hit = [-1] * num_query
             for q, t in mapping.items():
                 if q < num_query:
                     h_indices_hit[q] = t
-            
+
             hit = TemplateHit(
                 index=idx,
-                name=f"temp_{idx}",
+                name=str(domain_name),
                 aligned_cols=len(mapping),
-                sum_probs=1.0,
+                sum_probs=float(sum_probability),
                 query=query_sequence,
                 hit_sequence=template_seq,
                 indices_query=q_indices_hit,
                 indices_hit=h_indices_hit,
             )
             hits.append(hit)
-            
+
         return TemplateSearchResult(features=features_list, hits=hits, errors=errors, warnings=warnings)
 
 

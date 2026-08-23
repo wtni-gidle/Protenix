@@ -27,6 +27,7 @@ from protenix.data.esm.esm_featurizer import ESMFeaturizer
 from protenix.data.inference.json_to_feature import SampleDictToFeatures
 from protenix.data.msa.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.template.template_featurizer import InferenceTemplateFeaturizer
+from protenix.data.template.template_finalizer import has_template_hit_inputs
 from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
@@ -84,8 +85,13 @@ class InferenceDataset(Dataset):
         json_task_name = os.path.basename(self.input_json_path).split(".")[0]
         if self.use_template:
             template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
-            fetch_remote = configs.data.template.get("fetch_remote", True)
-            if not fetch_remote:
+            requires_template_database = has_template_hit_inputs(self.inputs)
+            fetch_remote = (
+                configs.data.template.get("fetch_remote", True)
+                if requires_template_database
+                else False
+            )
+            if requires_template_database and not fetch_remote:
                 assert template_mmcif_dir is not None and os.path.exists(
                     template_mmcif_dir
                 ), (
@@ -96,7 +102,7 @@ class InferenceDataset(Dataset):
                     "set use_template=false for inference, or set data.template.fetch_remote=true "
                     "to download mmCIF files on demand from PDBe."
                 )
-            else:
+            elif requires_template_database:
                 if template_mmcif_dir:
                     os.makedirs(template_mmcif_dir, exist_ok=True)
             self.online_template_featurizer = TemplateHitFeaturizer(

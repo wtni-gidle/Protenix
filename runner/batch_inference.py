@@ -16,6 +16,7 @@ import difflib
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -71,6 +72,75 @@ def init_logging() -> None:
     )
 
 
+def _create_template_finalizer_featurizer(
+    kalign_binary_path: Optional[str],
+):
+    """Lazily construct the existing local/remote template resolver."""
+    from protenix.data.template.template_utils import TemplateHitFeaturizer
+
+    template_config = data_configs["template"]
+    mmcif_dir = template_config["prot_template_mmcif_dir"]
+    fetch_remote = template_config.get("fetch_remote", True)
+    if fetch_remote and mmcif_dir:
+        os.makedirs(mmcif_dir, exist_ok=True)
+    configured_kalign_path = template_config["kalign_binary_path"]
+    resolved_kalign_path = kalign_binary_path
+    if resolved_kalign_path is None:
+        resolved_kalign_path = (
+            configured_kalign_path
+            if os.path.isfile(configured_kalign_path)
+            else shutil.which("kalign") or configured_kalign_path
+        )
+    required_paths = {
+        "template release-date cache": template_config["release_dates_path"],
+        "obsolete-PDB mapping": template_config["obsolete_pdbs_path"],
+        "Kalign binary": resolved_kalign_path,
+    }
+    if not fetch_remote:
+        required_paths["local mmCIF directory"] = mmcif_dir
+    missing_paths = [
+        f"{description}: {path}"
+        for description, path in required_paths.items()
+        if not path
+        or (
+            not os.path.isdir(path)
+            if description == "local mmCIF directory"
+            else not os.path.isfile(path)
+        )
+        or (description == "Kalign binary" and not os.access(path, os.X_OK))
+    ]
+    if missing_paths:
+        raise FileNotFoundError(
+            "Template finalization requires local data-stage dependencies; "
+            "metadata and binaries are not downloaded automatically. Missing "
+            + "; ".join(missing_paths)
+        )
+    return TemplateHitFeaturizer(
+        mmcif_dir=mmcif_dir,
+        template_cache_dir=template_config["prot_template_cache_dir"],
+        max_hits=4,
+        kalign_binary_path=resolved_kalign_path,
+        max_template_date="2021-09-30",
+        release_dates_path=template_config["release_dates_path"],
+        obsolete_pdbs_path=template_config["obsolete_pdbs_path"],
+        _shuffle_top_k_prefiltered=None,
+        _max_template_candidates_num=20,
+        fetch_remote=fetch_remote,
+    )
+
+
+def _remove_private_preprocess_artifacts(json_path: str) -> None:
+    """Remove one workflow UUID's JSON and finalized-template sidecars."""
+    path = Path(json_path)
+    for companion in path.parent.glob(f"{path.stem}.template_*.json"):
+        companion.unlink(missing_ok=True)
+    path.unlink(missing_ok=True)
+    try:
+        path.parent.rmdir()
+    except OSError:
+        pass
+
+
 def preprocess_input(
     input_json: str,
     out_dir: str,
@@ -89,6 +159,8 @@ def preprocess_input(
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
     intermediate_json_path: Optional[str] = None,
+    kalign_binary_path: Optional[str] = None,
+    finalize_template_hits: bool = False,
 ) -> str:
     """
     Preprocess the input JSON file by performing MSA, template, and RNA MSA searches as needed.
@@ -113,6 +185,10 @@ def preprocess_input(
         intermediate_json_path (Optional[str]): Private intermediate path used by
             the unified prediction workflow. Direct callers retain legacy output
             naming when this is not set.
+        kalign_binary_path (Optional[str]): Kalign binary used while finalizing
+            template hit lists.
+        finalize_template_hits (bool): Convert A3M/HHR templates into explicit
+            workflow-private sidecars. Disabled for direct prep/mt compatibility.
 
     Returns:
         str: Path to the updated JSON file.
@@ -122,6 +198,10 @@ def preprocess_input(
     if intermediate_json_path is not None:
         intermediate_json_path = os.path.abspath(
             os.path.expanduser(intermediate_json_path)
+        )
+    if finalize_template_hits and intermediate_json_path is None:
+        raise ValueError(
+            "Template finalization requires a workflow-private intermediate JSON path."
         )
 
     # 1. Protein MSA search
@@ -146,6 +226,14 @@ def preprocess_input(
             hmmsearch_binary_path=hmmsearch_binary_path,
             hmmbuild_binary_path=hmmbuild_binary_path,
             seqres_database_path=seqres_database_path,
+            finalized_sidecar_prefix=(
+                intermediate_json_path if finalize_template_hits else None
+            ),
+            template_featurizer_factory=(
+                lambda: _create_template_finalizer_featurizer(kalign_binary_path)
+            )
+            if finalize_template_hits
+            else None,
         )
         actual_updated = actual_updated or template_updated
 
@@ -558,13 +646,11 @@ def inference_jsons(
                 rna_central_database_path=rna_central_database_path,
                 nhmmer_n_cpu=nhmmer_n_cpu,
                 intermediate_json_path=temporary_json,
+                kalign_binary_path=kalign_binary_path,
+                finalize_template_hits=True,
             )
         except Exception:
-            Path(temporary_json).unlink(missing_ok=True)
-            try:
-                Path(temporary_json).parent.rmdir()
-            except OSError:
-                pass
+            _remove_private_preprocess_artifacts(temporary_json)
             raise
 
     def create_runner() -> InferenceRunner:

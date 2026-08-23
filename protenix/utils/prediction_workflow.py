@@ -36,6 +36,10 @@ def _remove_intermediate_json(
     temporary_root = Path(output_dir).expanduser().resolve() / ".protenix_tmp"
     if processed_path.parent != temporary_root:
         return
+    for companion in temporary_root.glob(
+        f"{processed_path.stem}.template_*.json"
+    ):
+        companion.unlink(missing_ok=True)
     processed_path.unlink(missing_ok=True)
     try:
         temporary_root.rmdir()

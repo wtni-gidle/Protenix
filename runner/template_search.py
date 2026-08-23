@@ -12,17 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import pathlib
 import shutil
+import tempfile
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from protenix.data.tools.search import HmmsearchConfig, run_hmmsearch_with_a3m
 from protenix.utils.input_json import sanitise_job_name
 from protenix.utils.logger import get_logger
-from protenix.utils.text_io import read_text
+from protenix.utils.text_io import read_text, uncompressed_suffix
 
 logger = get_logger(__name__)
 
@@ -42,6 +44,58 @@ def ensure_ends_with_newline(s: str) -> str:
     if not s.endswith("\n") and (len(s) > 0):
         s += "\n"
     return s
+
+
+def _write_json_atomic(path: Path, value: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary_file:
+            temporary_path = Path(temporary_file.name)
+            json.dump(value, temporary_file, indent=4)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def _finalize_template_path(
+    *,
+    protein_chain: dict[str, Any],
+    templates_path: str,
+    sidecar_path: Path,
+    template_featurizer: Any,
+    sequence_uid: str,
+) -> None:
+    from protenix.data.template.template_finalizer import finalize_template_hits
+
+    result = finalize_template_hits(
+        query_sequence=protein_chain["sequence"],
+        templates_path=templates_path,
+        template_featurizer=template_featurizer,
+        sequence_uid=sequence_uid,
+        max_template_date="2021-09-30",
+    )
+    for warning in result.warnings:
+        logger.warning("Template finalizer warning for %s: %s", sequence_uid, warning)
+    for error in result.errors:
+        logger.warning("Template finalizer error for %s: %s", sequence_uid, error)
+    if not result.templates and result.errors:
+        raise RuntimeError(
+            f"Template finalization produced no usable templates for {sequence_uid}: "
+            + "; ".join(result.errors)
+        )
+    _write_json_atomic(sidecar_path, list(result.templates))
+    protein_chain["templatesPath"] = str(sidecar_path)
 
 
 def run_template_search(
@@ -169,6 +223,8 @@ def update_template_info(
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
+    finalized_sidecar_prefix: Optional[str] = None,
+    template_featurizer_factory: Optional[Callable[[], Any]] = None,
 ) -> bool:
     """
     Update template information in the JSON data.
@@ -180,11 +236,53 @@ def update_template_info(
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
+        finalized_sidecar_prefix (Optional[str]): Workflow-private JSON prefix.
+            When set, A3M/HHR hit lists are finalized to adjacent explicit
+            template sidecars. The direct prep/mt entry points omit this and
+            retain their historical A3M/HHR output.
+        template_featurizer_factory: Lazily create the core template
+            featurizer only if an A3M/HHR path actually needs finalization.
 
     Returns:
         bool: True if any template information was updated.
     """
     actual_updated = False
+    template_featurizer = None
+    sidecar_prefix = (
+        Path(finalized_sidecar_prefix).expanduser().resolve()
+        if finalized_sidecar_prefix is not None
+        else None
+    )
+
+    def finalize_if_requested(
+        protein_chain: dict[str, Any],
+        templates_path: str,
+        *,
+        task_idx: int,
+        sequence_idx: int,
+        task_name: str,
+    ) -> bool:
+        nonlocal template_featurizer
+        if sidecar_prefix is None:
+            return False
+        if uncompressed_suffix(templates_path) not in {".a3m", ".hhr"}:
+            return False
+        if template_featurizer_factory is None:
+            raise ValueError("Template finalization requires a featurizer factory")
+        if template_featurizer is None:
+            template_featurizer = template_featurizer_factory()
+        sidecar_path = sidecar_prefix.with_name(
+            f"{sidecar_prefix.stem}.template_{task_idx}_{sequence_idx}.json"
+        )
+        _finalize_template_path(
+            protein_chain=protein_chain,
+            templates_path=templates_path,
+            sidecar_path=sidecar_path,
+            template_featurizer=template_featurizer,
+            sequence_uid=f"{task_name}_{sequence_idx}",
+        )
+        return True
+
     for task_idx, infer_data in enumerate(json_data):
         task_name = sanitise_job_name(
             str(infer_data.get("name") or f"task_{task_idx}")
@@ -196,6 +294,14 @@ def update_template_info(
                 if "templatesPath" in protein_chain and os.path.exists(
                     protein_chain["templatesPath"]
                 ):
+                    if finalize_if_requested(
+                        protein_chain,
+                        protein_chain["templatesPath"],
+                        task_idx=task_idx,
+                        sequence_idx=sequence_idx,
+                        task_name=task_name,
+                    ):
+                        actual_updated = True
                     continue
 
                 # Get MSA path to perform template search
@@ -248,6 +354,13 @@ def update_template_info(
                             )
                         protein_chain["templatesPath"] = template_path
                         actual_updated = True
+                        finalize_if_requested(
+                            protein_chain,
+                            template_path,
+                            task_idx=task_idx,
+                            sequence_idx=sequence_idx,
+                            task_name=task_name,
+                        )
     return actual_updated
 
 

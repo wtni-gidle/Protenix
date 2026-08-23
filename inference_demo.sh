@@ -19,10 +19,13 @@
 #   This script provides usage examples for running inference with various
 #   Protenix model versions and configurations.
 #
-# Arguments Summary (for 'protenix pred' or 'runner/inference.py'):
+# Arguments Summary (for 'protenix pred'; the direct runner examples below use
+# their lower-level configuration flags):
 #   -i, --input (str):       [Required] Input JSON file or directory.
 #   -o, --out_dir (str):     [Default: ./output] Output directory for results.
-#   -s, --seeds (str):       [Default: 101] Inference seeds (e.g., "101,102").
+#   -r, --model_seeds (str): [Default: input modelSeeds, then 101] Optional
+#                            inference seed override (e.g., "101,102").
+#   -s, --seeds (str):       Deprecated aliases for --model_seeds.
 #   -c, --cycle (int):       [Default: 10] Number of Pairformer cycles.
 #   -p, --step (int):        [Default: 200] Number of diffusion steps.
 #   -e, --sample (int):      [Default: 5] Samples per seed.
@@ -35,7 +38,8 @@
 #   --triatt_kernel (str):   Triangle attention kernel ('triattention', 'cuequivariance', etc.).
 #   --use_template (bool):   Enable template features (v1.0.0+ only).
 #   --use_rna_msa (bool):    Enable RNA MSA features (v1.0.0+ only).
-#   --use_seeds_in_json:     Prioritize seeds defined in the input JSON.
+#   --use_seeds_in_json:     Deprecated; JSON seeds are used automatically
+#                            when --model_seeds is omitted.
 #   --use_tfg_guidance (bool): Use Training-Free Guidance (TFG) for inference.
 #
 # Available Models (Ref: configs/configs_model_type.py, docs/supported_models.md):
@@ -75,7 +79,7 @@ echo "Starting Section 1: CLI-based inference tests..."
 protenix pred \
     -i examples/input.json \
     -o ./test_outputs/cmd/output_base_v1 \
-    -s 101 \
+    -r 101 \
     -n protenix_base_default_v1.0.0 \
     --use_template true \
     --use_default_params true
@@ -85,10 +89,8 @@ protenix pred \
 protenix pred \
     -i examples/examples_with_template/example_mgyp004658859411.json \
     -o ./test_outputs/cmd/output_base_v1 \
-    -s 101 \
     -n protenix_base_default_v1.0.0 \
     --use_template true \
-    --use_seeds_in_json true \
     --use_default_params true
 
 # Example 1.3: RNA MSA support (v1.0.0 exclusive)

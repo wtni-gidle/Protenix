@@ -22,7 +22,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Any, List, Optional, Union
 
 import click
 from Bio import SeqIO
@@ -41,16 +41,11 @@ from protenix.utils.input_json import (
     make_input_json_paths_relative,
 )
 from protenix.utils.logger import get_logger
+from protenix.utils.model_seeds import parse_model_seeds, resolve_model_seeds
 from protenix.utils.prediction_workflow import run_prediction_workflow
 from protenix.version import __version__
 from rdkit import Chem
 
-from runner.inference import (
-    download_inference_cache,
-    infer_predict,
-    InferenceRunner,
-    update_gpu_compatible_configs,
-)
 from runner.msa_search import msa_search, update_infer_json
 from runner.rna_msa_search import update_rna_msa_info
 from runner.template_search import update_template_info
@@ -139,6 +134,35 @@ def _remove_private_preprocess_artifacts(json_path: str) -> None:
         path.parent.rmdir()
     except OSError:
         pass
+
+
+def _write_private_single_job_json(
+    job: dict,
+    *,
+    temporary_root: Path,
+    job_index: int,
+) -> Path:
+    """Write one resolved job to a workflow-private inference JSON."""
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    job_path = temporary_root / (
+        f"{uuid.uuid4().hex}.inference_job_{job_index}.json"
+    )
+    try:
+        with open(job_path, "w", encoding="utf-8") as f:
+            json.dump(
+                make_input_json_paths_relative([job], job_path), f, indent=4
+            )
+    except Exception:
+        job_path.unlink(missing_ok=True)
+        raise
+    return job_path
+
+
+def _run_infer_predict(runner: Any, configs: Any) -> None:
+    """Load the model inference module only when prediction is requested."""
+    from runner.inference import infer_predict
+
+    infer_predict(runner, configs)
 
 
 def preprocess_input(
@@ -417,7 +441,7 @@ def get_default_runner(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
-) -> InferenceRunner:
+) -> Any:
     """
     Get a default InferenceRunner with the specified configurations.
 
@@ -443,6 +467,12 @@ def get_default_runner(
     Returns:
         InferenceRunner: An instance of InferenceRunner.
     """
+    from runner.inference import (
+        download_inference_cache,
+        InferenceRunner,
+        update_gpu_compatible_configs,
+    )
+
     inference_configs["model_name"] = model_name
     configs = {**configs_base, **{"data": data_configs}, **inference_configs}
     configs = parse_configs(
@@ -546,7 +576,7 @@ def inference_jsons(
     json_file: str,
     out_dir: str = "./output",
     use_msa: bool = True,
-    seeds: list = [101],
+    seeds: Optional[list] = None,
     n_cycle: int = 10,
     n_step: int = 200,
     n_sample: int = 5,
@@ -578,6 +608,7 @@ def inference_jsons(
     run_inference: bool = True,
     write_input_json: bool = True,
     compress_fold_input: bool = False,
+    model_seeds: Optional[list] = None,
 ) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
@@ -586,7 +617,7 @@ def inference_jsons(
         json_file (str): Path to a JSON file or directory containing JSON files.
         out_dir (str): Directory to save inference results.
         use_msa (bool): Whether to use MSA.
-        seeds (list): List of inference seeds.
+        seeds (Optional[list]): Deprecated Python API alias for model_seeds.
         n_cycle (int): Number of cycles.
         n_step (int): Number of diffusion steps.
         n_sample (int): Number of samples.
@@ -617,11 +648,27 @@ def inference_jsons(
         run_inference (bool): Run model inference.
         write_input_json (bool): Publish a prepared input bundle.
         compress_fold_input (bool): Compress materialized MSA/template resources.
+        model_seeds (Optional[list]): Per-run seed override. If omitted, each
+            job's modelSeeds is used, falling back to 101.
 
     Returns:
         List[str]: JSON paths that were prepared or sent to inference.
     """
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    model_seed_override = None
+    if run_inference:
+        if seeds is not None and model_seeds is not None:
+            raise ValueError("Specify only one of seeds or model_seeds.")
+        requested_override = model_seeds if model_seeds is not None else seeds
+        if requested_override is not None:
+            model_seed_override = resolve_model_seeds(
+                {}, override=requested_override
+            )
+        if use_seeds_in_json:
+            logger.warning(
+                "use_seeds_in_json is deprecated: modelSeeds is now used "
+                "automatically when no model_seeds CLI/API override is supplied."
+            )
 
     def preprocess_one(input_json: str) -> str:
         temporary_json = os.path.join(
@@ -653,10 +700,10 @@ def inference_jsons(
             _remove_private_preprocess_artifacts(temporary_json)
             raise
 
-    def create_runner() -> InferenceRunner:
+    def create_runner() -> Any:
         inference_configs["dump_dir"] = out_dir
         return get_default_runner(
-            seeds=seeds,
+            seeds=model_seed_override,
             n_cycle=n_cycle,
             n_step=n_step,
             n_sample=n_sample,
@@ -670,15 +717,63 @@ def inference_jsons(
             enable_tf32=enable_tf32,
             use_template=use_template,
             use_rna_msa=use_rna_msa,
-            use_seeds_in_json=use_seeds_in_json,
+            use_seeds_in_json=False,
             need_atom_confidence=need_atom_confidence,
             kalign_binary_path=kalign_binary_path,
             use_tfg_guidance=use_tfg_guidance,
         )
 
-    def infer_one(runner: InferenceRunner, input_json: str) -> None:
-        runner.configs["input_json_path"] = input_json
-        infer_predict(runner, runner.configs)
+    def infer_one(runner: Any, input_json: str) -> None:
+        jobs = load_input_json(input_json)
+        if not isinstance(jobs, list) or not jobs:
+            raise ValueError("Inference input must contain at least one job.")
+
+        temporary_root = Path(out_dir) / ".protenix_tmp"
+        successful_jobs = 0
+        failures = {}
+        last_exception = None
+        for job_index, job in enumerate(jobs):
+            if not isinstance(job, dict):
+                failures[f"job_{job_index}"] = "Inference job must be an object."
+                continue
+            private_job_path = None
+            active_json = input_json
+            job_name = str(job.get("name") or f"job_{job_index}")
+            try:
+                if len(jobs) > 1:
+                    private_job_path = _write_private_single_job_json(
+                        job,
+                        temporary_root=temporary_root,
+                        job_index=job_index,
+                    )
+                    active_json = str(private_job_path)
+                active_seeds = resolve_model_seeds(
+                    job, override=model_seed_override
+                )
+                runner.configs["seeds"] = active_seeds
+                runner.configs["use_seeds_in_json"] = False
+                runner.configs["input_json_path"] = active_json
+                logger.info("Using model seeds for %s: %s", job_name, active_seeds)
+                _run_infer_predict(runner, runner.configs)
+                successful_jobs += 1
+            except Exception as exc:
+                last_exception = exc
+                failures[job_name] = str(exc)
+                logger.warning("Inference job %s failed: %s", job_name, exc)
+            finally:
+                if private_job_path is not None:
+                    private_job_path.unlink(missing_ok=True)
+
+        try:
+            temporary_root.rmdir()
+        except OSError:
+            pass
+        if successful_jobs == 0:
+            raise RuntimeError(
+                f"All inference jobs failed for {input_json}: {failures}"
+            ) from last_exception
+        if failures:
+            logger.warning("Some inference jobs failed: %s", failures)
 
     try:
         ready_jsons, inference_errors = run_prediction_workflow(
@@ -778,7 +873,18 @@ def protenix_cli() -> None:
     default=False,
     help="Compress materialized MSA and template resources in the input bundle.",
 )
-@click.option("-s", "--seeds", type=str, default="101", help="Seeds (comma-separated).")
+@click.option(
+    "-r",
+    "--model_seeds",
+    "-s",
+    "--seeds",
+    type=str,
+    default=None,
+    help=(
+        "Optional comma-separated model seed override. When omitted, use each "
+        "job's modelSeeds, falling back to 101. -s/--seeds are deprecated aliases."
+    ),
+)
 @click.option("-c", "--cycle", type=int, default=10, help="Pairformer cycle number.")
 @click.option("-p", "--step", type=int, default=200, help="Diffusion steps.")
 @click.option("-e", "--sample", type=int, default=5, help="Number of samples.")
@@ -857,7 +963,11 @@ def protenix_cli() -> None:
     "--use_seeds_in_json",
     type=bool,
     default=False,
-    help="Priority to seeds defined in input JSON.",
+    hidden=True,
+    help=(
+        "Deprecated compatibility flag. Input modelSeeds is now used "
+        "automatically when no model_seeds override is supplied."
+    ),
 )
 @click.option(
     "--need_atom_confidence",
@@ -944,7 +1054,7 @@ def predict(
     run_inference: bool,
     write_input_json: bool,
     compress_fold_input: bool,
-    seeds: str,
+    model_seeds: Optional[str],
     cycle: int,
     step: int,
     sample: int,
@@ -985,7 +1095,7 @@ def predict(
         run_inference (bool): Run model inference.
         write_input_json (bool): Publish a prepared input bundle.
         compress_fold_input (bool): Compress materialized MSA/template resources.
-        seeds (str): Comma-separated seeds.
+        model_seeds (Optional[str]): Comma-separated model seed override.
         cycle (int): Number of cycles.
         step (int): Number of diffusion steps.
         sample (int): Number of samples.
@@ -1068,9 +1178,11 @@ def predict(
             "Invalid triatt_kernel. Options: 'triattention', "
             "'cuequivariance', 'deepspeed', 'torch'."
         )
-        parsed_seeds = list(map(int, seeds.split(",")))
+        parsed_model_seeds = (
+            parse_model_seeds(model_seeds) if model_seeds is not None else None
+        )
     else:
-        parsed_seeds = []
+        parsed_model_seeds = None
 
     if use_template and run_inference:
         assert model_name in [
@@ -1104,14 +1216,6 @@ def predict(
         )
         logger.info("=" * 50)
 
-    if use_seeds_in_json and run_inference:
-        logger.info("=" * 50)
-        logger.info(
-            "Using seeds defined in JSON file for inference.\n"
-            "Note: This will override any seeds passed via command line, "
-            "using seeds from modelSeeds defined in the JSON."
-        )
-        logger.info("=" * 50)
     if use_tfg_guidance and run_inference:
         logger.info("=" * 50)
         logger.info("Using Training-Free Guidance (TFG) for inference.\n")
@@ -1120,7 +1224,7 @@ def predict(
         input,
         out_dir,
         use_msa,
-        seeds=parsed_seeds,
+        model_seeds=parsed_model_seeds,
         n_cycle=cycle,
         n_step=step,
         n_sample=sample,

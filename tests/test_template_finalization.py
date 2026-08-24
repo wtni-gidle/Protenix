@@ -370,6 +370,7 @@ class TemplateFinalizationTest(unittest.TestCase):
                 jobs,
                 finalized_sidecar_prefix=str(temporary_json),
                 template_featurizer_factory=factory,
+                max_template_date="2024-01-31",
             )
 
         sidecar = self.root / ".protenix_tmp/workflow.template_0_0.json"
@@ -380,7 +381,7 @@ class TemplateFinalizationTest(unittest.TestCase):
             templates_path=str(hits_path),
             template_featurizer=featurizer,
             sequence_uid="template_job_0",
-            max_template_date="2021-09-30",
+            max_template_date="2024-01-31",
         )
         self.assertEqual(
             Path(protein["templatesPath"]).resolve(), sidecar.resolve()

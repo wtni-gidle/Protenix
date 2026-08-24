@@ -21,6 +21,7 @@ import subprocess
 import tempfile
 import time
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional, Union
 
@@ -53,6 +54,26 @@ from runner.template_search import update_template_info
 
 logger = get_logger(__name__)
 
+DEFAULT_MAX_TEMPLATE_DATE = "2021-09-30"
+
+
+def _validate_max_template_date(value: str) -> str:
+    """Validate and normalize a template cutoff date."""
+    if not isinstance(value, str):
+        raise ValueError("max_template_date must be a YYYY-MM-DD string.")
+    try:
+        parsed = datetime.strptime(value, "%Y-%m-%d")
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid max_template_date {value!r}; expected YYYY-MM-DD."
+        ) from exc
+    normalized = parsed.strftime("%Y-%m-%d")
+    if normalized != value:
+        raise ValueError(
+            f"Invalid max_template_date {value!r}; expected YYYY-MM-DD."
+        )
+    return normalized
+
 
 def init_logging() -> None:
     """Initialize logging configuration."""
@@ -70,6 +91,7 @@ def init_logging() -> None:
 
 def _create_template_finalizer_featurizer(
     kalign_binary_path: Optional[str],
+    max_template_date: str,
 ):
     """Lazily construct the existing local/remote template resolver."""
     from protenix.data.template.template_utils import TemplateHitFeaturizer
@@ -116,7 +138,7 @@ def _create_template_finalizer_featurizer(
         template_cache_dir=template_config["prot_template_cache_dir"],
         max_hits=4,
         kalign_binary_path=resolved_kalign_path,
-        max_template_date="2021-09-30",
+        max_template_date=max_template_date,
         release_dates_path=template_config["release_dates_path"],
         obsolete_pdbs_path=template_config["obsolete_pdbs_path"],
         _shuffle_top_k_prefiltered=None,
@@ -207,6 +229,7 @@ def preprocess_input(
     intermediate_json_path: Optional[str] = None,
     kalign_binary_path: Optional[str] = None,
     finalize_template_hits: bool = False,
+    max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> str:
     """
     Preprocess the input JSON file by performing MSA, template, and RNA MSA searches as needed.
@@ -235,12 +258,14 @@ def preprocess_input(
             template hit lists.
         finalize_template_hits (bool): Convert A3M/HHR templates into explicit
             workflow-private sidecars. Disabled for direct prep/mt compatibility.
+        max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
         str: Path to the updated JSON file.
     """
     input_json = os.path.abspath(os.path.expanduser(input_json))
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    max_template_date = _validate_max_template_date(max_template_date)
     if intermediate_json_path is not None:
         intermediate_json_path = os.path.abspath(
             os.path.expanduser(intermediate_json_path)
@@ -276,10 +301,13 @@ def preprocess_input(
                 intermediate_json_path if finalize_template_hits else None
             ),
             template_featurizer_factory=(
-                lambda: _create_template_finalizer_featurizer(kalign_binary_path)
+                lambda: _create_template_finalizer_featurizer(
+                    kalign_binary_path, max_template_date
+                )
             )
             if finalize_template_hits
             else None,
+            max_template_date=max_template_date,
         )
         actual_updated = actual_updated or template_updated
 
@@ -466,6 +494,7 @@ def get_default_runner(
     compress_full_confidence: bool = False,
     skip: bool = False,
     write_now: bool = True,
+    max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> Any:
     """
     Get a default InferenceRunner with the specified configurations.
@@ -491,6 +520,7 @@ def get_default_runner(
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
         skip (bool): Skip seeds whose complete canonical outputs already exist.
         write_now (bool): Compatibility flag for synchronous prediction writes.
+        max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
         InferenceRunner: An instance of InferenceRunner.
@@ -542,6 +572,7 @@ def get_default_runner(
     configs.enable_efficient_fusion = enable_fusion
     configs.enable_tf32 = enable_tf32
     configs.use_template = use_template
+    configs.max_template_date = _validate_max_template_date(max_template_date)
     configs.use_rna_msa = use_rna_msa
     configs.use_seeds_in_json = use_seeds_in_json
     configs.need_atom_confidence = need_atom_confidence
@@ -643,6 +674,7 @@ def inference_jsons(
     compress_full_confidence: bool = False,
     skip: bool = False,
     write_now: bool = True,
+    max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> List[str]:
     """
     Run inference on a single JSON file or a directory of JSON files.
@@ -687,11 +719,13 @@ def inference_jsons(
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
         skip (bool): Skip seeds whose complete canonical outputs already exist.
         write_now (bool): Compatibility flag for synchronous prediction writes.
+        max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
         List[str]: JSON paths that were prepared or sent to inference.
     """
     out_dir = os.path.abspath(os.path.expanduser(out_dir))
+    max_template_date = _validate_max_template_date(max_template_date)
     model_seed_override = None
     if run_inference:
         if seeds is not None and model_seeds is not None:
@@ -737,6 +771,7 @@ def inference_jsons(
                 intermediate_json_path=temporary_json,
                 kalign_binary_path=kalign_binary_path,
                 finalize_template_hits=True,
+                max_template_date=max_template_date,
             )
         except Exception:
             _remove_private_preprocess_artifacts(temporary_json)
@@ -766,6 +801,7 @@ def inference_jsons(
             compress_full_confidence=compress_full_confidence,
             skip=skip,
             write_now=write_now,
+            max_template_date=max_template_date,
         )
 
     def create_runner() -> _LazyInferenceRunner:
@@ -1081,6 +1117,12 @@ def protenix_cli() -> None:
     help="Path to kalign (searches in PATH if not provided).",
 )
 @click.option(
+    "--max_template_date",
+    type=str,
+    default=DEFAULT_MAX_TEMPLATE_DATE,
+    help="Latest allowed template release date in YYYY-MM-DD format.",
+)
+@click.option(
     "--use_tfg_guidance",
     type=bool,
     default=False,
@@ -1173,6 +1215,7 @@ def predict(
     need_atom_confidence: bool,
     compress_full_confidence: bool,
     kalign_binary_path: Optional[str] = None,
+    max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
     use_tfg_guidance: bool = False,
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
@@ -1219,6 +1262,7 @@ def predict(
         skip (bool): Skip seeds whose complete canonical outputs already exist.
         write_now (bool): Compatibility flag for synchronous prediction writes.
         kalign_binary_path (Optional[str]): Path to kalign binary.
+        max_template_date (str): Latest template release date in YYYY-MM-DD format.
         use_tfg_guidance (bool): Use TFG guidance.
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
@@ -1235,6 +1279,13 @@ def predict(
         raise click.UsageError(
             "At least one of --run_data_pipeline or --run_inference must be true."
         )
+
+    try:
+        max_template_date = _validate_max_template_date(max_template_date)
+    except ValueError as exc:
+        raise click.BadParameter(
+            str(exc), param_hint="--max_template_date"
+        ) from exc
 
     init_logging()
     logger.info(f"Run infer with input={input}, out_dir={out_dir}, sample={sample}")
@@ -1349,6 +1400,7 @@ def predict(
         skip=skip,
         write_now=write_now,
         kalign_binary_path=kalign_binary_path,
+        max_template_date=max_template_date,
         use_tfg_guidance=use_tfg_guidance,
         hmmsearch_binary_path=hmmsearch_binary_path,
         hmmbuild_binary_path=hmmbuild_binary_path,

@@ -28,6 +28,7 @@ usage() {
     echo "-n <model_name>                 Checkpoint name. (default: protenix_base_default_v1.0.0)"
     echo "-M <use_msa>                    Build/use protein MSA features. (default: true)"
     echo "-T <use_template>               Build/use template features. (default: false)"
+    echo "-m <max_template_date>          Latest template release date, YYYY-MM-DD. (default: 2021-09-30)"
     echo "-R <use_rna_msa>                Build/use RNA MSA features. (default: false)"
     echo "-w <write_input_json>           Write prepared JSON: auto/true/false. (default: auto)"
     echo "-z <compress_fold_input>        Write prepared resources as .zst. (default: true)"
@@ -44,7 +45,7 @@ usage() {
 }
 
 # region: Parse command line arguments
-while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:R:w:z:S:h" opt; do
+while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:S:h" opt; do
     case "${opt}" in
     i) input_path=$OPTARG ;;
     o) output_dir=$OPTARG ;;
@@ -59,6 +60,7 @@ while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:R:w:z:S:h" opt; do
     n) model_name=$OPTARG ;;
     M) use_msa=$OPTARG ;;
     T) use_template=$OPTARG ;;
+    m) max_template_date=$OPTARG ;;
     R) use_rna_msa=$OPTARG ;;
     w) write_input_json=$OPTARG ;;
     z) compress_fold_input=$OPTARG ;;
@@ -91,6 +93,7 @@ if [[ "$dtype" == "" ]]; then dtype="bf16"; fi
 if [[ "$model_name" == "" ]]; then model_name="protenix_base_default_v1.0.0"; fi
 if [[ "$use_msa" == "" ]]; then use_msa="true"; fi
 if [[ "$use_template" == "" ]]; then use_template="false"; fi
+if [[ "$max_template_date" == "" ]]; then max_template_date="2021-09-30"; fi
 if [[ "$use_rna_msa" == "" ]]; then use_rna_msa="false"; fi
 if [[ "$write_input_json" == "" ]]; then write_input_json="auto"; fi
 if [[ "$compress_fold_input" == "" ]]; then compress_fold_input="true"; fi
@@ -152,6 +155,7 @@ command_args=(
     --model_name "$model_name"
     --use_msa "$use_msa"
     --use_template "$use_template"
+    --max_template_date "$max_template_date"
     --use_rna_msa "$use_rna_msa"
     --skip "$skip"
 )

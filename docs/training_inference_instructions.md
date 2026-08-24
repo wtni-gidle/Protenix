@@ -117,6 +117,7 @@ protenix pred --input ./prepared/user_test/user_test_data.json --out_dir ./outpu
 - `--use_default_params`: (Default: `true`) Automatically configures cycles and steps based on the selected model. Set to `false` to manually override `--cycle` and `--step`.
 - `--use_tfg_guidance`: Enable Training-Free Guidance (TFG) for refined sampling.
 - `--use_msa` / `--use_template` / `--use_rna_msa`: (Default: `true`/`false`/`false`) Toggle specific features for inference.
+- `--max_template_date`: (Default: `2021-09-30`) Latest allowed template release date in `YYYY-MM-DD` format. It applies when resolving A3M/HHR template hits during data preparation or inference.
 - `--dtype`: Set data type to `bf16` (default) or `fp32`.
 - `--trimul_kernel` / `--triatt_kernel`: Choose specialized kernels (e.g., `cuequivariance`, `triattention`) for hardware acceleration.
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).

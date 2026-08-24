@@ -37,6 +37,8 @@
 #   --trimul_kernel (str):   Triangle multiplicative kernel ('cuequivariance', 'torch').
 #   --triatt_kernel (str):   Triangle attention kernel ('triattention', 'cuequivariance', etc.).
 #   --use_template (bool):   Enable template features (v1.0.0+ only).
+#   --max_template_date:     Latest allowed template release date (YYYY-MM-DD;
+#                            default: 2021-09-30).
 #   --use_rna_msa (bool):    Enable RNA MSA features (v1.0.0+ only).
 #   --use_seeds_in_json:     Deprecated; JSON seeds are used automatically
 #                            when --model_seeds is omitted.

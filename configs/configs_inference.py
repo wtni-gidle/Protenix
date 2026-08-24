@@ -38,6 +38,7 @@ inference_configs = {
     "enable_diffusion_shared_vars_cache": True,
     "msa_pair_as_unpair": True,
     "use_template": False,
+    "max_template_date": "2021-09-30",
     "use_rna_msa": False,
     "use_seeds_in_json": False,
 }

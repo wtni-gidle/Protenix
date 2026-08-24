@@ -75,6 +75,7 @@ def _finalize_template_path(
     sidecar_path: Path,
     template_featurizer: Any,
     sequence_uid: str,
+    max_template_date: str,
 ) -> None:
     from protenix.data.template.template_finalizer import finalize_template_hits
 
@@ -83,7 +84,7 @@ def _finalize_template_path(
         templates_path=templates_path,
         template_featurizer=template_featurizer,
         sequence_uid=sequence_uid,
-        max_template_date="2021-09-30",
+        max_template_date=max_template_date,
     )
     for warning in result.warnings:
         logger.warning("Template finalizer warning for %s: %s", sequence_uid, warning)
@@ -225,6 +226,7 @@ def update_template_info(
     seqres_database_path: Optional[str] = None,
     finalized_sidecar_prefix: Optional[str] = None,
     template_featurizer_factory: Optional[Callable[[], Any]] = None,
+    max_template_date: str = "2021-09-30",
 ) -> bool:
     """
     Update template information in the JSON data.
@@ -242,6 +244,7 @@ def update_template_info(
             retain their historical A3M/HHR output.
         template_featurizer_factory: Lazily create the core template
             featurizer only if an A3M/HHR path actually needs finalization.
+        max_template_date: Latest template release date in YYYY-MM-DD format.
 
     Returns:
         bool: True if any template information was updated.
@@ -280,6 +283,7 @@ def update_template_info(
             sidecar_path=sidecar_path,
             template_featurizer=template_featurizer,
             sequence_uid=f"{task_name}_{sequence_idx}",
+            max_template_date=max_template_date,
         )
         return True
 

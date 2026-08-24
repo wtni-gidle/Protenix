@@ -456,9 +456,10 @@ class PredictionResumeBatchTest(unittest.TestCase):
         self.assertEqual(help_result.exit_code, 0, help_result.output)
         self.assertIn("--skip", help_result.output)
         self.assertIn("--write_now", help_result.output)
+        self.assertIn("--max_template_date", help_result.output)
 
         for extra_args, expected in (
-            ([], (False, True, True)),
+            ([], (False, True, True, "2021-09-30")),
             (
                 [
                     "--skip",
@@ -467,8 +468,10 @@ class PredictionResumeBatchTest(unittest.TestCase):
                     "false",
                     "--compress_fold_input",
                     "false",
+                    "--max_template_date",
+                    "2024-01-31",
                 ],
-                (True, False, False),
+                (True, False, False, "2024-01-31"),
             ),
         ):
             with self.subTest(extra_args=extra_args):
@@ -503,9 +506,37 @@ class PredictionResumeBatchTest(unittest.TestCase):
                         captured["skip"],
                         captured["write_now"],
                         captured["compress_fold_input"],
+                        captured["max_template_date"],
                     ),
                     expected,
                 )
+
+    def test_cli_rejects_invalid_max_template_date(self):
+        with (
+            mock.patch.object(batch_inference, "init_logging"),
+            mock.patch.object(
+                batch_inference,
+                "inference_jsons",
+                side_effect=AssertionError("invalid date must fail before workflow"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                batch_inference.predict,
+                [
+                    "--input",
+                    str(self.root / "unused.json"),
+                    "--run_data_pipeline",
+                    "false",
+                    "--run_inference",
+                    "true",
+                    "--max_template_date",
+                    "2024-02-30",
+                ],
+            )
+
+        self.assertNotEqual(result.exit_code, 0)
+        self.assertIn("Invalid value for --max_template_date", result.output)
+        self.assertIn("expected YYYY-MM-DD", result.output)
 
 
 if __name__ == "__main__":

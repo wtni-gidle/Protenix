@@ -638,7 +638,7 @@ def inference_jsons(
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     write_input_json: bool = True,
-    compress_fold_input: bool = False,
+    compress_fold_input: bool = True,
     model_seeds: Optional[list] = None,
     compress_full_confidence: bool = False,
     skip: bool = False,
@@ -942,8 +942,11 @@ def protenix_cli() -> None:
 @click.option(
     "--compress_fold_input",
     type=bool,
-    default=False,
-    help="Compress materialized MSA and template resources in the input bundle.",
+    default=True,
+    help=(
+        "Compress materialized MSA and template resources in the input bundle "
+        "(default: true)."
+    ),
 )
 @click.option(
     "-r",

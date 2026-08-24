@@ -458,8 +458,18 @@ class PredictionResumeBatchTest(unittest.TestCase):
         self.assertIn("--write_now", help_result.output)
 
         for extra_args, expected in (
-            ([], (False, True)),
-            (["--skip", "true", "--write_now", "false"], (True, False)),
+            ([], (False, True, True)),
+            (
+                [
+                    "--skip",
+                    "true",
+                    "--write_now",
+                    "false",
+                    "--compress_fold_input",
+                    "false",
+                ],
+                (True, False, False),
+            ),
         ):
             with self.subTest(extra_args=extra_args):
                 captured = {}
@@ -489,7 +499,12 @@ class PredictionResumeBatchTest(unittest.TestCase):
 
                 self.assertEqual(result.exit_code, 0, result.output)
                 self.assertEqual(
-                    (captured["skip"], captured["write_now"]), expected
+                    (
+                        captured["skip"],
+                        captured["write_now"],
+                        captured["compress_fold_input"],
+                    ),
+                    expected,
                 )
 
 

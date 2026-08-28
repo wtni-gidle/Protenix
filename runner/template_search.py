@@ -90,10 +90,21 @@ def _finalize_template_path(
         logger.warning("Template finalizer warning for %s: %s", sequence_uid, warning)
     for error in result.errors:
         logger.warning("Template finalizer error for %s: %s", sequence_uid, error)
-    if not result.templates and result.errors:
+    fatal_errors = [
+        error
+        for error in result.errors
+        if not error.rstrip().endswith(" date unknown.")
+    ]
+    if not result.templates and fatal_errors:
         raise RuntimeError(
             f"Template finalization produced no usable templates for {sequence_uid}: "
-            + "; ".join(result.errors)
+            + "; ".join(fatal_errors)
+        )
+    if not result.templates and result.errors:
+        logger.warning(
+            "Template finalization found no template with a known release date "
+            "for %s; continuing without templates",
+            sequence_uid,
         )
     _write_json_atomic(sidecar_path, list(result.templates))
     protein_chain["templatesPath"] = str(sidecar_path)

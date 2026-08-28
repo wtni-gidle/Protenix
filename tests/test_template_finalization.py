@@ -444,6 +444,67 @@ class TemplateFinalizationTest(unittest.TestCase):
             ).exists()
         )
 
+    def test_data_stage_allows_templates_with_unknown_release_dates(self):
+        hits_path = self.root / "hits.a3m"
+        hits_path.write_text("unused\n", encoding="utf-8")
+        protein = {
+            "sequence": "AAAA",
+            "count": 1,
+            "templatesPath": str(hits_path),
+        }
+        jobs = [{"name": "unknown dates", "sequences": [{"proteinChain": protein}]}]
+        finalized = FinalizedTemplateResult(
+            templates=[],
+            errors=["1abc date unknown.", "2def date unknown."],
+            warnings=[],
+            timing={},
+        )
+        private_json = self.root / ".protenix_tmp/workflow.json"
+
+        with mock.patch(
+            "protenix.data.template.template_finalizer.finalize_template_hits",
+            return_value=finalized,
+        ):
+            updated = update_template_info(
+                jobs,
+                finalized_sidecar_prefix=str(private_json),
+                template_featurizer_factory=lambda: object(),
+            )
+
+        sidecar = self.root / ".protenix_tmp/workflow.template_0_0.json"
+        self.assertTrue(updated)
+        self.assertEqual(json.loads(sidecar.read_text()), [])
+        self.assertEqual(Path(protein["templatesPath"]).resolve(), sidecar.resolve())
+
+    def test_data_stage_still_fails_on_mixed_template_errors(self):
+        hits_path = self.root / "hits.a3m"
+        hits_path.write_text("unused\n", encoding="utf-8")
+        protein = {
+            "sequence": "AAAA",
+            "count": 1,
+            "templatesPath": str(hits_path),
+        }
+        jobs = [{"name": "mixed errors", "sequences": [{"proteinChain": protein}]}]
+        finalized = FinalizedTemplateResult(
+            templates=[],
+            errors=["1abc date unknown.", "CIF not found"],
+            warnings=[],
+            timing={},
+        )
+
+        with mock.patch(
+            "protenix.data.template.template_finalizer.finalize_template_hits",
+            return_value=finalized,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "CIF not found"):
+                update_template_info(
+                    jobs,
+                    finalized_sidecar_prefix=str(
+                        self.root / ".protenix_tmp/workflow.json"
+                    ),
+                    template_featurizer_factory=lambda: object(),
+                )
+
     def test_data_stage_to_bundle_materializes_finalized_sidecar_and_cleans_private_files(self):
         source = self.root / "source"
         hits_path = source / "hits.a3m"

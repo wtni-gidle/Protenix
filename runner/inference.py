@@ -637,6 +637,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
 
     num_data = len(dataloader.dataset)
     successful_predictions = 0
+    failed_predictions = []
     t0_start = time.time()
     for seed in seeds:
         seed_everything(seed=seed, deterministic=configs.deterministic)
@@ -649,13 +650,16 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 sample_name = data["sample_name"]
 
                 if len(data_error_message) > 0:
-                    logger.error(f"Data error for {sample_name}: {data_error_message}")
+                    logger.error(
+                        f"Data error for {sample_name} [seed:{seed}]: {data_error_message}"
+                    )
                     with open(
                         opjoin(runner.error_dir, f"{sample_name}.txt"),
                         "a",
                         encoding="utf-8",
                     ) as f:
                         f.write(data_error_message)
+                    failed_predictions.append(f"{sample_name} [seed:{seed}]")
                     continue
 
                 logger.info(
@@ -698,8 +702,9 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 )
                 torch.cuda.empty_cache()
             except Exception as e:
+                failed_predictions.append(f"{sample_name} [seed:{seed}]")
                 error_message = (
-                    f"[Rank {DIST_WRAPPER.rank}] {sample_name} failed: {e}\n"
+                    f"[Rank {DIST_WRAPPER.rank}] {sample_name} [seed:{seed}] failed: {e}\n"
                     f"{traceback.format_exc()}"
                 )
                 logger.error(error_message)
@@ -717,6 +722,11 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
     if successful_predictions == 0:
         raise RuntimeError(
             f"Inference produced no successful predictions for {configs.input_json_path}."
+        )
+    if failed_predictions:
+        raise RuntimeError(
+            f"{len(failed_predictions)} job/seed prediction(s) failed: "
+            f"{failed_predictions}. Successful outputs were retained."
         )
     # Remove the error directory if it's empty
     if opexists(runner.error_dir):

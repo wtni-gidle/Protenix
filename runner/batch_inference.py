@@ -881,7 +881,10 @@ def inference_jsons(
                 f"All inference jobs failed for {input_json}: {failures}"
             ) from last_exception
         if failures:
-            logger.warning("Some inference jobs failed: %s", failures)
+            raise RuntimeError(
+                f"Some inference jobs failed for {input_json}: {failures}. "
+                "Successful outputs were retained."
+            ) from last_exception
 
     try:
         ready_jsons, inference_errors = run_prediction_workflow(
@@ -909,10 +912,10 @@ def inference_jsons(
     )
     if inference_errors:
         logger.warning(f"Run prediction workflow failed: {inference_errors}")
-        if not ready_jsons:
-            raise RuntimeError(
-                f"All input jobs failed during the prediction workflow: {inference_errors}"
-            )
+        raise RuntimeError(
+            f"One or more input jobs failed during the prediction workflow: {inference_errors}. "
+            "Successful outputs were retained."
+        )
     return ready_jsons
 
 

@@ -366,6 +366,17 @@ The `pocket` constraint is defined as a dictionary with three keys: `"binder_cha
 
 
 ### Format of the model output
+
+If any requested job or seed fails, prediction continues with the remaining work
+and keeps successful outputs, but the command exits with a nonzero status at the
+end. Check the error log and `ERR/` files before treating the run as complete.
+This also applies when a directory contains both valid and invalid input files.
+Python `inference_jsons()` callers receive a `RuntimeError` for partial failures;
+the lower-level `run_prediction_workflow()` helper still returns its existing
+`(ready_jsons, errors)` result. A fully successful run, including a run where all
+requested outputs are already complete and skipped, retains its normal success
+status.
+
 The outputs are saved below the directory provided via `--dump_dir`. Each input
 job has one directory containing structures, summary confidence, and (when
 `--need_atom_confidence true`) full confidence data:

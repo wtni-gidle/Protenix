@@ -359,15 +359,15 @@ class BatchModelSeedsIntegrationTest(unittest.TestCase):
                 batch_inference, "_run_infer_predict", fake_infer_predict
             ),
         ):
-            ready = batch_inference.inference_jsons(
-                str(input_json),
-                out_dir=str(out_dir),
-                run_data_pipeline=False,
-                run_inference=True,
-                write_input_json=False,
-            )
+            with self.assertRaisesRegex(RuntimeError, "input jobs failed"):
+                batch_inference.inference_jsons(
+                    str(input_json),
+                    out_dir=str(out_dir),
+                    run_data_pipeline=False,
+                    run_inference=True,
+                    write_input_json=False,
+                )
 
-        self.assertEqual(ready, [str(input_json.resolve())])
         self.assertEqual(observed, [("valid", [21])])
         self.assertFalse((out_dir / ".protenix_tmp").exists())
 
@@ -394,7 +394,7 @@ class BatchModelSeedsIntegrationTest(unittest.TestCase):
                 side_effect=AssertionError("Invalid jobs must not reach inference"),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "All input jobs failed"):
+            with self.assertRaisesRegex(RuntimeError, "input jobs failed"):
                 batch_inference.inference_jsons(
                     str(input_json),
                     out_dir=str(out_dir),

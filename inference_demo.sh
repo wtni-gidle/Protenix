@@ -43,7 +43,7 @@
 #   --use_seeds_in_json:     Deprecated; JSON seeds are used automatically
 #                            when --model_seeds is omitted.
 #   --compress_full_confidence (bool): Write full confidence as compressed NPZ
-#                            instead of the native compact JSON.
+#                            (default: true); false selects compact JSON.
 #   --skip (bool):           Skip model seeds with complete canonical outputs.
 #   --write_now (bool):      Native writes are synchronous; false is accepted
 #                            for compatibility and emits a warning.

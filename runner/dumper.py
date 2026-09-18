@@ -101,7 +101,7 @@ class DataDumper:
         base_dir: str,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
-        compress_full_confidence: bool = False,
+        compress_full_confidence: bool = True,
     ) -> None:
         self.base_dir = str(Path(base_dir).expanduser().resolve())
         self.need_atom_confidence = need_atom_confidence

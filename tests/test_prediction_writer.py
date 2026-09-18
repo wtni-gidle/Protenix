@@ -159,6 +159,44 @@ class PredictionWriterTest(unittest.TestCase):
         )
 
     @mock.patch("runner.dumper.save_structure_cif")
+    def test_omitted_compression_defaults_to_npz(self, save_cif):
+        from zipfile import ZIP_DEFLATED, ZipFile
+
+        save_cif.side_effect = self._fake_save_structure
+        prediction = _prediction(1)
+        before = copy.deepcopy(prediction)
+
+        self._dump(
+            DataDumper(str(self.root), need_atom_confidence=True),
+            "npz_default",
+            7,
+            prediction,
+        )
+
+        full = (
+            self.root
+            / "npz_default/full_data/seed-7_sample-0_full_data.npz"
+        )
+        self.assertTrue(full.is_file())
+        self.assertFalse(full.with_suffix(".json").exists())
+        with ZipFile(full) as archive:
+            self.assertTrue(
+                all(item.compress_type == ZIP_DEFLATED for item in archive.infolist())
+            )
+        with np.load(full, allow_pickle=False) as archive:
+            self.assertEqual(
+                set(archive.files),
+                set(prediction["full_data"][0])
+                - {"atom_coordinate", "atom_is_polymer"},
+            )
+            self.assertEqual(archive["token_asym_id"].dtype, np.dtype("int64"))
+            self.assertEqual(
+                archive["token_pair_pae"].dtype,
+                np.dtype("float32"),
+            )
+        _assert_prediction_unchanged(self, prediction, before)
+
+    @mock.patch("runner.dumper.save_structure_cif")
     def test_multiple_jobs_seeds_and_samples_have_disjoint_layouts(self, save_cif):
         save_cif.side_effect = self._fake_save_structure
         dumper = self._dumper()
@@ -532,34 +570,39 @@ class PredictionWriterCliWiringTest(unittest.TestCase):
         self.assertEqual(help_result.exit_code, 0, help_result.output)
         self.assertIn("--compress_full_confidence", help_result.output)
 
-        captured = {}
-
-        def fake_inference_jsons(*_args, **kwargs):
-            captured.update(kwargs)
-            return []
-
-        with (
-            mock.patch.object(batch_inference, "init_logging"),
-            mock.patch.object(
-                batch_inference, "inference_jsons", fake_inference_jsons
-            ),
+        base_args = [
+            "--input",
+            "/tmp/unused_prediction_writer.json",
+            "--run_data_pipeline",
+            "false",
+            "--run_inference",
+            "true",
+        ]
+        for extra_args, expected in (
+            ([], True),
+            (["--compress_full_confidence", "false"], False),
+            (["--compress_full_confidence", "true"], True),
         ):
-            result = CliRunner().invoke(
-                batch_inference.predict,
-                [
-                    "--input",
-                    "/tmp/unused_prediction_writer.json",
-                    "--run_data_pipeline",
-                    "false",
-                    "--run_inference",
-                    "true",
-                    "--compress_full_confidence",
-                    "true",
-                ],
-            )
+            with self.subTest(extra_args=extra_args):
+                captured = {}
 
-        self.assertEqual(result.exit_code, 0, result.output)
-        self.assertIs(captured["compress_full_confidence"], True)
+                def fake_inference_jsons(*_args, **kwargs):
+                    captured.update(kwargs)
+                    return []
+
+                with (
+                    mock.patch.object(batch_inference, "init_logging"),
+                    mock.patch.object(
+                        batch_inference, "inference_jsons", fake_inference_jsons
+                    ),
+                ):
+                    result = CliRunner().invoke(
+                        batch_inference.predict,
+                        base_args + extra_args,
+                    )
+
+                self.assertEqual(result.exit_code, 0, result.output)
+                self.assertIs(captured["compress_full_confidence"], expected)
 
 
 if __name__ == "__main__":

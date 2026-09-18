@@ -366,21 +366,23 @@ The `pocket` constraint is defined as a dictionary with three keys: `"binder_cha
 
 
 ### Format of the model output
-The outputs will be saved in the directory provided via the `--dump_dir` flag in the inference script. The outputs include the predicted structures in CIF format and the confidence in JSON files. The `--dump_dir` will have the following structure:
+The outputs are saved below the directory provided via `--dump_dir`. Each input
+job has one directory containing structures, summary confidence, and (when
+`--need_atom_confidence true`) full confidence data:
 
 ```bash
-├── <name>/  # specified in the input JSON file
-│   ├── <seed>/  # specified via the `--seeds` flag in the inference script
-│   │   ├── <name>_<seed>_sample_0.cif
-│   │   ├── <name>_<seed>_summary_confidence_sample_0.json
-│   │   └──... # the number of samples in each seed is specified via `--sample_diffusion.N_sample ` flag in the inference script
-│   └──...
-└── ...
+<name>/
+├── models/seed-<seed>_sample-<sample>_model.cif
+├── summary_confidences/seed-<seed>_sample-<sample>_summary_confidences.json
+└── full_data/seed-<seed>_sample-<sample>_full_data.npz
 ```
 
+Full confidence defaults to compressed NPZ. Set
+`--compress_full_confidence false` to write the same payload as compact JSON.
+
 The contents of each output file are as follows:
-- `<name>_<seed>_sample_*.cif` - A CIF format text file containing the predicted structure
-- `<name>_<seed>_summary_confidence_sample_*.json` - A JSON format text file containing various confidence scores for assessing the reliability of predictions. Here’s a description of each score:
+- `models/*_model.cif` - A CIF format text file containing the predicted structure
+- `summary_confidences/*_summary_confidences.json` - A JSON format text file containing various confidence scores for assessing the reliability of predictions. Here’s a description of each score:
 
     - `plddt` - Predicted Local Distance Difference Test (pLDDT) score. Higher values indicate greater confidence.
     - `gpde` - Globl Predicted Distance Error (PDE) score. Lower values indicate greater confidence.

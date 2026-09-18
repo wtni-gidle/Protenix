@@ -84,7 +84,7 @@ class InferenceRunner(object):
             need_atom_confidence=configs.need_atom_confidence,
             sorted_by_ranking_score=configs.sorted_by_ranking_score,
             compress_full_confidence=configs.get(
-                "compress_full_confidence", False
+                "compress_full_confidence", True
             ),
         )
 
@@ -194,7 +194,7 @@ class InferenceRunner(object):
         self,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
-        compress_full_confidence: bool = False,
+        compress_full_confidence: bool = True,
     ) -> None:
         """
         Initialize the data dumper for saving predictions.
@@ -599,7 +599,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                             "need_atom_confidence", False
                         ),
                         compress_full_confidence=configs.get(
-                            "compress_full_confidence", False
+                            "compress_full_confidence", True
                         ),
                     )
                 )

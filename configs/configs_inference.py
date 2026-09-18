@@ -24,7 +24,7 @@ inference_configs = {
     "seeds": ListValue([101]),
     "dump_dir": "./output",
     "need_atom_confidence": False,
-    "compress_full_confidence": False,
+    "compress_full_confidence": True,
     "skip": False,
     "write_now": True,
     # Retained for configuration compatibility; output names use raw sample index.

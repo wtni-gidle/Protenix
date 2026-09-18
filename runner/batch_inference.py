@@ -491,7 +491,7 @@ def get_default_runner(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
     skip: bool = False,
     write_now: bool = True,
     max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
@@ -671,7 +671,7 @@ def inference_jsons(
     write_input_json: bool = True,
     compress_fold_input: bool = True,
     model_seeds: Optional[list] = None,
-    compress_full_confidence: bool = False,
+    compress_full_confidence: bool = True,
     skip: bool = False,
     write_now: bool = True,
     max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
@@ -1089,7 +1089,7 @@ def protenix_cli() -> None:
 @click.option(
     "--compress_full_confidence",
     type=bool,
-    default=False,
+    default=True,
     help=(
         "Write Protenix full confidence as compressed NPZ instead of JSON. "
         "Only applies when need_atom_confidence is true."

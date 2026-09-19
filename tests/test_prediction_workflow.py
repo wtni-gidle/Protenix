@@ -425,6 +425,56 @@ class TestPredictionWorkflow(unittest.TestCase):
         self.assertFalse(runner_created)
         self.assertFalse((self.tmp_path / "output").exists())
 
+    def test_invalid_job_names_fail_before_preparation_or_inference(self):
+        invalid_names = (
+            ("missing", None, False),
+            ("empty", "", True),
+            ("whitespace", "   ", True),
+            ("non-string", 7, True),
+        )
+        modes = (
+            ("data-only", True, False),
+            ("inference-only", False, True),
+        )
+
+        for label, value, include_name in invalid_names:
+            for mode, run_data_pipeline, run_inference in modes:
+                with self.subTest(name=label, mode=mode):
+                    input_path = self.tmp_path / f"{label}-{mode}.json"
+                    job = {"sequences": []}
+                    if include_name:
+                        job["name"] = value
+                    self._write_json(input_path, [job])
+                    callbacks = []
+
+                    ready, errors = run_prediction_workflow(
+                        input_path,
+                        self.tmp_path / f"output-{label}-{mode}",
+                        run_data_pipeline=run_data_pipeline,
+                        run_inference=run_inference,
+                        write_input_json=False,
+                        preprocess_input=lambda path: callbacks.append(
+                            ("preprocess", path)
+                        )
+                        or path,
+                        create_runner=lambda: callbacks.append(("runner", None))
+                        or object(),
+                        infer_input=lambda _runner, path: callbacks.append(
+                            ("infer", path)
+                        ),
+                    )
+
+                    self.assertEqual(ready, [])
+                    self.assertEqual(
+                        errors,
+                        {
+                            str(input_path.resolve()): (
+                                "Job name must be a non-empty string."
+                            )
+                        },
+                    )
+                    self.assertEqual(callbacks, [])
+
     def test_output_nested_in_input_directory_is_not_rediscovered(self):
         input_path, _ = self._make_input("nested output job")
         input_dir = input_path.parent

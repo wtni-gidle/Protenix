@@ -180,8 +180,10 @@ def prepared_job_names(
     for job_index, job in enumerate(jobs):
         if not isinstance(job, dict) or "sequences" not in job:
             raise ValueError(f"Invalid inference job at index {job_index}.")
-        raw_name = str(job.get("name") or f"task_{job_index}")
-        names.append(sanitise_job_name(raw_name))
+        name = job.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Job name must be a non-empty string.")
+        names.append(sanitise_job_name(name))
 
     if len(names) != len(set(names)):
         raise ValueError("Input contains duplicate sanitised job names.")

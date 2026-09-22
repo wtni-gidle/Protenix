@@ -20,7 +20,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from protenix.utils.input_json import load_template_json
+from protenix.utils.input_json import load_inline_templates
 from protenix.utils.text_io import (
     read_text,
     uncompressed_suffix,
@@ -96,23 +96,14 @@ class TestCompressedTextIO(unittest.TestCase):
         self.assertEqual(list(self.tmp_path.glob(f".{path.name}.*.tmp")), [])
 
     @unittest.skipUnless(HAS_ZSTANDARD, "zstandard is not installed")
-    def test_template_sidecar_reads_compressed_mmcif_path(self) -> None:
+    def test_inline_template_reads_compressed_mmcif_path(self) -> None:
         mmcif_path = self.tmp_path / "template.cif"
-        sidecar_path = self.tmp_path / "templates.json"
         mmcif = "data_template\n_entry.id template\n"
         write_zstd_text_atomic(mmcif_path, mmcif)
-        sidecar_path.write_text(
-            """[
-  {
-    "mmcifPath": "template.cif",
-    "queryIndices": [0],
-    "templateIndices": [0]
-  }
-]""",
-            encoding="utf-8",
-        )
-
-        templates = load_template_json(sidecar_path)
+        templates = load_inline_templates([{
+            "mmcifPath": str(mmcif_path.resolve()),
+            "queryIndices": [0], "templateIndices": [0],
+        }])
 
         self.assertEqual(templates[0]["mmcif"], mmcif)
         self.assertEqual(Path(templates[0]["mmcifPath"]), mmcif_path.resolve())

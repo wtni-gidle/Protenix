@@ -155,7 +155,7 @@ class PredictionResumeHelperTest(unittest.TestCase):
             )
         )
 
-    def test_empty_or_corrupt_required_outputs_are_incomplete(self):
+    def test_only_zero_byte_required_outputs_are_incomplete(self):
         corruptions = (
             ("empty_model", "model", lambda path: path.write_bytes(b""), False),
             (
@@ -218,9 +218,47 @@ class PredictionResumeHelperTest(unittest.TestCase):
                     full_format="npz" if compress else "json",
                 )
                 corrupt(self._sample_paths(job_name, 31, 0)[target])
-                self.assertFalse(
-                    self._is_complete(job_name, 31, 1, compress=compress)
+                self.assertEqual(
+                    self._is_complete(job_name, 31, 1, compress=compress),
+                    job_name not in ("empty_model", "empty_summary"),
                 )
+
+    def test_nonempty_outputs_are_never_opened(self):
+        for compress in (False, True):
+            self._write_complete_seed("metadata", 7, 2,
+                                      full_format="npz" if compress else "json")
+            for sample in range(2):
+                for path in self._sample_paths("metadata", 7, sample).values():
+                    path.write_bytes(b"garbage")
+            with (
+                mock.patch("pathlib.Path.open", side_effect=AssertionError("opened output")),
+                mock.patch("builtins.open", side_effect=AssertionError("opened output")),
+                mock.patch("numpy.load", side_effect=AssertionError("loaded output")),
+            ):
+                self.assertTrue(self._is_complete("metadata", 7, 2, compress=compress))
+
+    def test_missing_empty_directory_and_escaped_outputs_select_only_affected_seed(self):
+        for target in ("model", "summary", "json", "npz"):
+            for damage in ("missing", "empty", "directory", "escape"):
+                with self.subTest(target=target, damage=damage):
+                    job = f"{target}_{damage}"
+                    compress = target == "npz"
+                    for seed in (7, 8):
+                        self._write_complete_seed(job, seed, 2,
+                                                  full_format="npz" if compress else "json")
+                    path = self._sample_paths(job, 8, 1)[target]
+                    path.unlink()
+                    if damage == "empty":
+                        path.touch()
+                    elif damage == "directory":
+                        path.mkdir()
+                    elif damage == "escape":
+                        outside = self.root / "outside"
+                        outside.write_bytes(b"nonempty")
+                        path.symlink_to(outside)
+                    self.assertEqual(incomplete_model_seeds(
+                        self.root, job, [7, 8], 2, need_atom_confidence=True,
+                        compress_full_confidence=compress), [8])
 
     def test_incomplete_seeds_are_returned_in_request_order(self):
         self._write_complete_seed("partial", 41, 2, full_format="json")
@@ -319,13 +357,15 @@ class PredictionResumeBatchTest(unittest.TestCase):
                 write_input_json=False,
                 need_atom_confidence=False,
                 skip=True,
+                n_step=99,
+                n_cycle=9,
             )
 
         self.assertEqual(ready, [str(input_json.resolve())])
         self.assertFalse((out_dir / ".protenix_tmp").exists())
         self.assertEqual(json.loads(input_json.read_text()), jobs)
 
-    def test_multi_job_partial_skip_runs_only_missing_seeds_with_one_runner(self):
+    def test_partial_sample_reruns_whole_seed_with_one_runner(self):
         input_json = self.root / "inputs/partial.json"
         jobs = [
             {"name": "complete", "modelSeeds": [11], "sequences": []},
@@ -333,8 +373,9 @@ class PredictionResumeBatchTest(unittest.TestCase):
         ]
         self._write_json(input_json, jobs)
         out_dir = self.root / "output"
-        self._write_complete_seed(out_dir, "complete", 11, 1)
-        self._write_complete_seed(out_dir, "partial", 21, 1)
+        self._write_complete_seed(out_dir, "complete", 11, 2)
+        self._write_complete_seed(out_dir, "partial", 21, 2)
+        self._write_complete_seed(out_dir, "partial", 22, 1)
         runner = mock.Mock()
         runner.configs = {}
         observed = []
@@ -357,7 +398,7 @@ class PredictionResumeBatchTest(unittest.TestCase):
             ready = batch_inference.inference_jsons(
                 str(input_json),
                 out_dir=str(out_dir),
-                n_sample=1,
+                n_sample=2,
                 run_data_pipeline=False,
                 run_inference=True,
                 write_input_json=False,
@@ -369,6 +410,7 @@ class PredictionResumeBatchTest(unittest.TestCase):
         self.assertEqual(ready, [str(input_json.resolve())])
         self.assertEqual(observed, [("partial", [22])])
         self.assertEqual(create_runner.call_count, 1)
+        self.assertEqual(create_runner.call_args.kwargs["n_sample"], 2)
         self.assertIs(create_runner.call_args.kwargs["write_now"], False)
         self.assertFalse((out_dir / ".protenix_tmp").exists())
         self.assertEqual(json.loads(input_json.read_text()), jobs)

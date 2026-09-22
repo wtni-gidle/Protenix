@@ -12,11 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
 import pathlib
 import shutil
-import tempfile
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -24,7 +22,7 @@ from typing import Any, Callable, Optional
 from protenix.data.tools.search import HmmsearchConfig, run_hmmsearch_with_a3m
 from protenix.utils.input_json import sanitise_job_name
 from protenix.utils.logger import get_logger
-from protenix.utils.text_io import read_text, uncompressed_suffix
+from protenix.utils.text_io import read_text
 
 logger = get_logger(__name__)
 
@@ -46,33 +44,12 @@ def ensure_ends_with_newline(s: str) -> str:
     return s
 
 
-def _write_json_atomic(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = Path(temporary_file.name)
-            json.dump(value, temporary_file, indent=4)
-            temporary_file.flush()
-            os.fsync(temporary_file.fileno())
-        os.replace(temporary_path, path)
-    finally:
-        if temporary_path is not None:
-            temporary_path.unlink(missing_ok=True)
 
 
 def _finalize_template_path(
     *,
     protein_chain: dict[str, Any],
     templates_path: str,
-    sidecar_path: Path,
     template_featurizer: Any,
     sequence_uid: str,
     max_template_date: str,
@@ -106,8 +83,8 @@ def _finalize_template_path(
             "for %s; continuing without templates",
             sequence_uid,
         )
-    _write_json_atomic(sidecar_path, list(result.templates))
-    protein_chain["templatesPath"] = str(sidecar_path)
+    protein_chain["templates"] = list(result.templates)
+    logger.info("Template finalization for %s retained %d template(s)", sequence_uid, len(result.templates))
 
 
 def run_template_search(
@@ -117,6 +94,7 @@ def run_template_search(
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
     output_path: Optional[str] = None,
+    msa_contents: Optional[list[str]] = None,
 ) -> None:
     """
     Run template search using hmmsearch with a3m files.
@@ -131,10 +109,10 @@ def run_template_search(
         output_path: Optional path for the template-hit A3M.
     """
     # msa_for_template_search_dir contains the paired/unpaired MSA files, used for template search
-    assert msa_for_template_search_dir is not None, "input msa dir should not be None"
+    assert msa_contents is not None or msa_for_template_search_dir is not None, "input msa dir should not be None"
 
     # msa_for_template_search_name is the name of MSA files to search, e.g. pairing,non_pairing
-    assert msa_for_template_search_name is not None, "input msa name should not be None"
+    assert msa_contents is not None or msa_for_template_search_name is not None, "input msa name should not be None"
 
     if hmmsearch_binary_path is None:
         hmmsearch_binary_path = shutil.which("hmmsearch")
@@ -194,7 +172,7 @@ def run_template_search(
         alphabet="amino",
     )
     max_a3m_query_sequences = 300
-    msa_search_list = msa_for_template_search_name.split(",")
+    msa_search_list = (msa_for_template_search_name or "").split(",") if msa_contents is None else []
     msa_a3m = ""
     for unpaired_msa in msa_search_list:
         unpaired_msa_path = f"{msa_for_template_search_dir}/{unpaired_msa}.a3m"
@@ -207,6 +185,8 @@ def run_template_search(
         unpaired_msa_a3m = ensure_ends_with_newline(unpaired_msa_a3m)
         msa_a3m = msa_a3m + unpaired_msa_a3m
     msa_a3m = ensure_ends_with_newline(msa_a3m)
+    if msa_contents is not None:
+        msa_a3m = "".join(ensure_ends_with_newline(content) for content in msa_contents)
     hmmsearch_a3m = run_hmmsearch_with_a3m(
         database_path=seqres_database_path,
         hmmsearch_config=hmmsearch_config,
@@ -235,13 +215,12 @@ def update_template_info(
     hmmsearch_binary_path: Optional[str] = None,
     hmmbuild_binary_path: Optional[str] = None,
     seqres_database_path: Optional[str] = None,
-    finalized_sidecar_prefix: Optional[str] = None,
     template_featurizer_factory: Optional[Callable[[], Any]] = None,
     max_template_date: str = "2021-09-30",
 ) -> bool:
     """
     Update template information in the JSON data.
-    If templatesPath is missing, it performs a template search.
+    Missing/null templates trigger search; explicit lists are validated as-is.
 
     Args:
         json_data (list[dict[str, Any]]): The input JSON data.
@@ -249,55 +228,19 @@ def update_template_info(
         hmmsearch_binary_path (Optional[str]): Path to hmmsearch binary.
         hmmbuild_binary_path (Optional[str]): Path to hmmbuild binary.
         seqres_database_path (Optional[str]): Path to sequence database.
-        finalized_sidecar_prefix (Optional[str]): Workflow-private JSON prefix.
-            When set, A3M/HHR hit lists are finalized to adjacent explicit
-            template sidecars. The direct prep/mt entry points omit this and
-            retain their historical A3M/HHR output.
         template_featurizer_factory: Lazily create the core template
-            featurizer only if an A3M/HHR path actually needs finalization.
+            featurizer only when automatic search needs finalization.
         max_template_date: Latest template release date in YYYY-MM-DD format.
 
     Returns:
         bool: True if any template information was updated.
     """
+    from configs.configs_data import data_configs
+    from protenix.data.template.template_finalizer import reject_persistent_template_cache
+
+    reject_persistent_template_cache(data_configs["template"].get("prot_template_cache_dir"))
     actual_updated = False
     template_featurizer = None
-    sidecar_prefix = (
-        Path(finalized_sidecar_prefix).expanduser().resolve()
-        if finalized_sidecar_prefix is not None
-        else None
-    )
-
-    def finalize_if_requested(
-        protein_chain: dict[str, Any],
-        templates_path: str,
-        *,
-        task_idx: int,
-        sequence_idx: int,
-        task_name: str,
-    ) -> bool:
-        nonlocal template_featurizer
-        if sidecar_prefix is None:
-            return False
-        if uncompressed_suffix(templates_path) not in {".a3m", ".hhr"}:
-            return False
-        if template_featurizer_factory is None:
-            raise ValueError("Template finalization requires a featurizer factory")
-        if template_featurizer is None:
-            template_featurizer = template_featurizer_factory()
-        sidecar_path = sidecar_prefix.with_name(
-            f"{sidecar_prefix.stem}.template_{task_idx}_{sequence_idx}.json"
-        )
-        _finalize_template_path(
-            protein_chain=protein_chain,
-            templates_path=templates_path,
-            sidecar_path=sidecar_path,
-            template_featurizer=template_featurizer,
-            sequence_uid=f"{task_name}_{sequence_idx}",
-            max_template_date=max_template_date,
-        )
-        return True
-
     for task_idx, infer_data in enumerate(json_data):
         task_name = sanitise_job_name(
             str(infer_data.get("name") or f"task_{task_idx}")
@@ -305,77 +248,45 @@ def update_template_info(
         for sequence_idx, sequence in enumerate(infer_data["sequences"]):
             if "proteinChain" in sequence:
                 protein_chain = sequence["proteinChain"]
-                # Skip if templatesPath already exists and is valid
-                if "templatesPath" in protein_chain and os.path.exists(
-                    protein_chain["templatesPath"]
-                ):
-                    if finalize_if_requested(
-                        protein_chain,
-                        protein_chain["templatesPath"],
-                        task_idx=task_idx,
-                        sequence_idx=sequence_idx,
-                        task_name=task_name,
-                    ):
-                        actual_updated = True
+                if "templatesPath" in protein_chain:
+                    raise ValueError("templatesPath is no longer supported; use templates")
+                if protein_chain.get("templates") is not None:
+                    from protenix.utils.input_json import load_inline_templates
+                    from protenix.data.template.template_utils import TemplateHitFeaturizer
+                    # Even an empty list is an explicit decision, not a search request.
+                    explicit = load_inline_templates(protein_chain["templates"])
+                    TemplateHitFeaturizer(mmcif_dir="").parse_json_templates(explicit, protein_chain["sequence"])
                     continue
-
-                # Get MSA path to perform template search
-                paired_msa_path = protein_chain.get("pairedMsaPath")
-                unpaired_msa_path = protein_chain.get("unpairedMsaPath")
-                msa_dir = None
-                if paired_msa_path and os.path.exists(paired_msa_path):
-                    msa_dir = os.path.dirname(paired_msa_path)
-                elif unpaired_msa_path and os.path.exists(unpaired_msa_path):
-                    msa_dir = os.path.dirname(unpaired_msa_path)
-
-                if msa_dir and os.path.exists(msa_dir):
-                    pairing_exists = os.path.exists(
-                        os.path.join(msa_dir, "pairing.a3m")
+                contents = []
+                for kind in ("paired", "unpaired"):
+                    content = protein_chain.get(f"{kind}Msa")
+                    if content is None and protein_chain.get(f"{kind}MsaPath"):
+                        content = read_text(protein_chain[f"{kind}MsaPath"])
+                    if content:
+                        contents.append(content)
+                if not contents:
+                    raise ValueError(f"Template search for {task_name} requires an MSA; supply templates=[] to disable")
+                if template_featurizer is None:
+                    if template_featurizer_factory is None:
+                        from runner.batch_inference import _create_template_finalizer_featurizer
+                        template_featurizer = _create_template_finalizer_featurizer(None, max_template_date)
+                    else:
+                        template_featurizer = template_featurizer_factory()
+                from protenix.utils.prepared_io import temporary_directory
+                with temporary_directory("protenix-template-search-") as scratch:
+                    template_path = str(Path(scratch) / "hits.a3m")
+                    run_template_search(
+                        hmmsearch_binary_path=hmmsearch_binary_path,
+                        hmmbuild_binary_path=hmmbuild_binary_path,
+                        seqres_database_path=seqres_database_path,
+                        msa_contents=contents, output_path=template_path,
                     )
-                    non_pairing_exists = os.path.exists(
-                        os.path.join(msa_dir, "non_pairing.a3m")
+                    _finalize_template_path(
+                        protein_chain=protein_chain, templates_path=template_path,
+                        template_featurizer=template_featurizer,
+                        sequence_uid=f"{task_name}_{sequence_idx}", max_template_date=max_template_date,
                     )
-
-                    if pairing_exists or non_pairing_exists:
-                        msa_names = []
-                        if pairing_exists:
-                            msa_names.append("pairing")
-                        if non_pairing_exists:
-                            msa_names.append("non_pairing")
-
-                        msa_name_str = ",".join(msa_names)
-                        if out_dir is None:
-                            template_path = os.path.join(msa_dir, "hmmsearch.a3m")
-                        else:
-                            template_path = os.path.join(
-                                out_dir,
-                                task_name,
-                                "msas",
-                                f"template_{sequence_idx}_hmmsearch.a3m",
-                            )
-
-                        if not os.path.exists(template_path):
-                            logger.info(
-                                f"Running template search for task {task_name}, "
-                                f"sequence: {protein_chain.get('sequence', '')}"
-                            )
-                            run_template_search(
-                                msa_for_template_search_dir=msa_dir,
-                                msa_for_template_search_name=msa_name_str,
-                                hmmsearch_binary_path=hmmsearch_binary_path,
-                                hmmbuild_binary_path=hmmbuild_binary_path,
-                                seqres_database_path=seqres_database_path,
-                                output_path=template_path,
-                            )
-                        protein_chain["templatesPath"] = template_path
-                        actual_updated = True
-                        finalize_if_requested(
-                            protein_chain,
-                            template_path,
-                            task_idx=task_idx,
-                            sequence_idx=sequence_idx,
-                            task_name=task_name,
-                        )
+                actual_updated = True
     return actual_updated
 
 

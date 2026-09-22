@@ -21,7 +21,6 @@ from pathlib import Path
 
 from protenix.utils.input_json import (
     load_input_json,
-    load_template_json,
     write_prepared_input_jsons,
 )
 from protenix.utils.text_io import read_text
@@ -144,174 +143,48 @@ class TestFoldInputBundle(unittest.TestCase):
             ">inline\nAAA\n",
         )
 
-    def test_explicit_template_sidecar_materialises_inline_and_path_mmcif(self):
-        source = self.root / "source"
-        source.mkdir()
-        cif_path = source / "templates/path_template.cif"
-        cif_path.parent.mkdir()
-        cif_path.write_text("data_path_template\n", encoding="utf-8")
-        sidecar = source / "templates/templates.json"
-        self._write_json(
-            sidecar,
-            [
-                {
-                    "mmcif": "data_inline_template\n",
-                    "queryIndices": [0],
-                    "templateIndices": [2],
-                },
-                {
-                    "mmcifPath": "path_template.cif",
-                    "queryIndices": [1],
-                    "templateIndices": [3],
-                },
-            ],
-        )
-        input_json = source / "input.json"
-        self._write_json(
-            input_json,
-            [
-                {
-                    "name": "template job",
-                    "sequences": [
-                        {
-                            "proteinChain": {
-                                "id": ["A"],
-                                "sequence": "AA",
-                                "count": 1,
-                                "templatesPath": "templates/templates.json",
-                            }
-                        }
-                    ],
-                }
-            ],
-        )
+    def test_inline_and_path_templates_materialise_without_sidecar(self):
+        source = self.root / "input.json"
+        cif = Path(__file__).parents[1] / "examples/2lwu.cif"
+        self._write_json(source, [{"name": "job", "sequences": [{"proteinChain": {
+            "sequence": "GHC", "count": 1,
+            "templates": [
+                {"mmcif": cif.read_text(), "queryIndices": [0], "templateIndices": [0]},
+                {"mmcifPath": str(cif), "queryIndices": [1], "templateIndices": [1]},
+            ]
+        }}]}])
+        output = Path(write_prepared_input_jsons(source, self.root / "out")[0])
+        protein = json.loads(output.read_text())[0]["sequences"][0]["proteinChain"]
+        self.assertNotIn("templatesPath", protein)
+        self.assertEqual(len(list((output.parent / "msas").glob("*.json"))), 0)
+        for index, template in enumerate(protein["templates"]):
+            self.assertEqual(template["mmcifPath"], f"msas/job__A_template_{index}.cif")
+            self.assertNotIn("mmcif", template)
+            self.assertNotIn("chainId", template)
+            self.assertTrue((output.parent / template["mmcifPath"]).is_file())
 
-        prepared_path = Path(
-            write_prepared_input_jsons(input_json, self.root / "output")[0]
-        )
-        raw_job = json.loads(prepared_path.read_text(encoding="utf-8"))[0]
-        raw_sidecar_path = raw_job["sequences"][0]["proteinChain"][
-            "templatesPath"
-        ]
-        self.assertEqual(raw_sidecar_path, "msas/template_job__A_templates.json")
-        bundled_sidecar = prepared_path.parent / raw_sidecar_path
-        raw_templates = json.loads(bundled_sidecar.read_text(encoding="utf-8"))
-        self.assertEqual(
-            raw_templates[0]["mmcifPath"], "template_job__A_template_0.cif"
-        )
-        self.assertEqual(
-            raw_templates[1]["mmcifPath"], "template_job__A_template_1.cif"
-        )
-        self.assertNotIn("mmcif", raw_templates[0])
-
-        moved_dir = self.root / "moved/template_job"
-        moved_dir.parent.mkdir()
-        shutil.copytree(prepared_path.parent, moved_dir)
-        shutil.rmtree(source)
-        moved_templates = load_template_json(
-            moved_dir / "msas/template_job__A_templates.json"
-        )
-        self.assertEqual(moved_templates[0]["mmcif"], "data_inline_template\n")
-        self.assertEqual(moved_templates[1]["mmcif"], "data_path_template\n")
-
-    @unittest.skipUnless(_HAS_ZSTANDARD, "zstandard is not installed")
+    @unittest.skipUnless(_HAS_ZSTANDARD, "zstandard unavailable")
     def test_compressed_bundle_writes_real_zstd_and_reloads(self):
-        source = self.root / "source"
-        source.mkdir()
-        msa_path = source / "unpaired.a3m"
-        msa_path.write_text(">query\nAAAA\n", encoding="utf-8")
-        cif_path = source / "template.cif"
-        cif_path.write_text("data_template\n", encoding="utf-8")
-        sidecar = source / "templates.json"
-        self._write_json(
-            sidecar,
-            [
-                {
-                    "mmcifPath": "template.cif",
-                    "queryIndices": [0],
-                    "templateIndices": [0],
-                }
-            ],
-        )
-        input_json = source / "input.json"
-        self._write_json(
-            input_json,
-            [
-                {
-                    "name": "compressed",
-                    "sequences": [
-                        {
-                            "proteinChain": {
-                                "id": ["A"],
-                                "sequence": "AAAA",
-                                "count": 1,
-                                "unpairedMsaPath": "unpaired.a3m",
-                                "templatesPath": "templates.json",
-                            }
-                        }
-                    ],
-                }
-            ],
-        )
+        source = self.root / "input.json"
+        cif = Path(__file__).parents[1] / "examples/2lwu.cif"
+        self._write_json(source, [{"name": "job", "sequences": [{"proteinChain": {
+            "sequence": "GHC", "count": 1, "unpairedMsa": ">q\nGHC\n",
+            "templates": [{"mmcifPath": str(cif), "queryIndices": [0], "templateIndices": [0]}]
+        }}]}])
+        output = Path(write_prepared_input_jsons(source, self.root / "out", compress_fold_input=True)[0])
+        protein = load_input_json(output)[0]["sequences"][0]["proteinChain"]
+        for path in [protein["unpairedMsaPath"], protein["templates"][0]["mmcifPath"]]:
+            self.assertEqual(Path(path).read_bytes()[:4], bytes.fromhex("28b52ffd"))
+            self.assertTrue(read_text(path))
+        self.assertEqual(read_text(protein["unpairedMsaPath"]), ">q\nGHC\n")
 
-        prepared_path = Path(
-            write_prepared_input_jsons(
-                input_json,
-                self.root / "output",
-                compress_fold_input=True,
-            )[0]
-        )
-        raw_job = json.loads(prepared_path.read_text(encoding="utf-8"))[0]
-        protein = raw_job["sequences"][0]["proteinChain"]
-        msa_output = prepared_path.parent / protein["unpairedMsaPath"]
-        self.assertEqual(msa_output.suffixes[-2:], [".a3m", ".zst"])
-        self.assertEqual(msa_output.read_bytes()[:4], b"\x28\xb5\x2f\xfd")
-        self.assertEqual(read_text(msa_output), ">query\nAAAA\n")
-
-        template_sidecar = prepared_path.parent / protein["templatesPath"]
-        raw_template = json.loads(template_sidecar.read_text(encoding="utf-8"))[0]
-        self.assertEqual(
-            raw_template["mmcifPath"], "compressed__A_template_0.cif.zst"
-        )
-        template_cif = template_sidecar.parent / raw_template["mmcifPath"]
-        self.assertEqual(read_text(template_cif), "data_template\n")
-
-    def test_template_hit_list_is_archived_without_claiming_cif_materialisation(self):
-        source = self.root / "source"
-        source.mkdir()
-        hits = source / "hmmsearch.a3m"
-        hits.write_text(">query\nAAA\n>1abc_A\nAAA\n", encoding="utf-8")
-        input_json = source / "input.json"
-        self._write_json(
-            input_json,
-            [
-                {
-                    "name": "hits",
-                    "sequences": [
-                        {
-                            "proteinChain": {
-                                "sequence": "AAA",
-                                "count": 1,
-                                "templatesPath": "hmmsearch.a3m",
-                            }
-                        }
-                    ],
-                }
-            ],
-        )
-
-        prepared_path = Path(
-            write_prepared_input_jsons(input_json, self.root / "output")[0]
-        )
-        raw_job = json.loads(prepared_path.read_text(encoding="utf-8"))[0]
-        templates_path = raw_job["sequences"][0]["proteinChain"]["templatesPath"]
-        self.assertEqual(templates_path, "msas/hits__A_template_hits.a3m")
-        self.assertEqual(
-            read_text(prepared_path.parent / templates_path), hits.read_text()
-        )
-        self.assertEqual(
-            list((prepared_path.parent / "msas").glob("*.cif*")), []
-        )
+    def test_legacy_template_hit_path_is_rejected(self):
+        source = self.root / "input.json"
+        self._write_json(source, [{"name": "job", "sequences": [{"proteinChain": {
+            "sequence": "AAA", "count": 1, "templatesPath": "hits.a3m"
+        }}]}])
+        with self.assertRaisesRegex(ValueError, "templatesPath"):
+            write_prepared_input_jsons(source, self.root / "out")
 
     def test_resource_symlink_cannot_escape_job_directory(self):
         source = self.root / "source"

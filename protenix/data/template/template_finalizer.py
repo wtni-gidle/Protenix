@@ -34,6 +34,17 @@ if TYPE_CHECKING:
     from protenix.data.template.template_utils import TemplateHitFeaturizer
 
 
+def reject_persistent_template_cache(cache_dir: Optional[str]) -> None:
+    """Keep prepared selection and export on the same current CIF source."""
+    if cache_dir:
+        raise ValueError(
+            "EnsembleFold wrapper does not support prot_template_cache_dir "
+            "(persistent parsed-template caches). Set it to '' or None; "
+            "templates are read from current CIF files. Native training/cache "
+            "tools are unaffected."
+        )
+
+
 @dataclasses.dataclass(frozen=True)
 class FinalizedTemplateResult:
     """Portable templates plus diagnostics from the existing selection path."""
@@ -44,19 +55,6 @@ class FinalizedTemplateResult:
     timing: dict[str, float]
 
 
-def has_template_hit_inputs(inputs: Sequence[dict[str, Any]]) -> bool:
-    """Return whether any protein still references an A3M/HHR hit list."""
-    for job in inputs:
-        for sequence in job.get("sequences", []):
-            protein = sequence.get("proteinChain")
-            if not isinstance(protein, dict):
-                continue
-            templates_path = protein.get("templatesPath")
-            if isinstance(templates_path, str) and uncompressed_suffix(
-                templates_path
-            ) in {".a3m", ".hhr"}:
-                return True
-    return False
 
 
 def validate_template_mapping(
@@ -174,9 +172,10 @@ def finalize_template_hits(
     The emitted entry includes optional metadata consumed by
     ``parse_json_templates`` so reloading the explicit entry reproduces domain
     name, sum probability, release date, and—critically—the actual chain used
-    during hit processing. The original complete mmCIF is retained; ``chainId``
-    selects the correct chain when that mmCIF contains multiple chains.
+    during hit processing. That chain is exported as a single-chain mmCIF,
+    retaining its complete polymer sequence and original residue numbering.
     """
+    reject_persistent_template_cache(template_featurizer._template_cache_dir)
     if not isinstance(query_sequence, str) or not query_sequence:
         raise ValueError("query_sequence must be a non-empty string")
 
@@ -210,6 +209,12 @@ def finalize_template_hits(
         # PDB resolution. This is intentionally retrieval-only: get_templates
         # above remains the single source of selection/filtering decisions.
         mmcif = template_featurizer._hit_processor._fetch_or_read_cif(pdb_id)
+        from protenix.data.template.single_chain import extract_single_chain
+        from protenix.data.template.template_parser import TemplateParser
+        parsed = TemplateParser.parse(file_id=pdb_id, mmcif_string=mmcif, auth_chain_id=actual_chain_id)
+        if parsed.mmcif_object is None:
+            raise ValueError(f"Cannot export selected template {domain_name}: {parsed.errors}")
+        mmcif = extract_single_chain(parsed.mmcif_object, actual_chain_id)
         release_date = _decode_scalar(
             feature_dict.get("template_release_date"), default="9999-12-31"
         )
@@ -218,7 +223,6 @@ def finalize_template_hits(
                 "mmcif": mmcif,
                 "queryIndices": query_indices,
                 "templateIndices": template_indices,
-                "chainId": actual_chain_id,
                 "domainName": domain_name,
                 "sumProbability": _sum_probability(feature_dict, final_hit),
                 "releaseDate": release_date,

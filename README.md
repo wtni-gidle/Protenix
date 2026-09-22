@@ -1,5 +1,8 @@
 # Protenix: Protein + X
 
+EnsembleFold wrapper users: see [prepared MSA/template inputs](docs/ensemblefold_prepared_inputs.md).
+The current wrapper uses inline `proteinChain.templates`; legacy `templatesPath` inputs are rejected.
+
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>
   &bull; <span style="margin: 0 10px;">📄 <a href="docs/PTX_V1_Technical_Report_202602042356.pdf">Protenix-v1</a></span>

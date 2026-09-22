@@ -45,6 +45,7 @@ from protenix.utils.logger import get_logger
 from protenix.utils.model_seeds import parse_model_seeds, resolve_model_seeds
 from protenix.utils.prediction_resume import incomplete_model_seeds
 from protenix.utils.prediction_workflow import run_prediction_workflow
+from protenix.utils.prepared_io import private_runtime, runtime_directory
 from protenix.version import __version__
 from rdkit import Chem
 
@@ -94,9 +95,11 @@ def _create_template_finalizer_featurizer(
     max_template_date: str,
 ):
     """Lazily construct the existing local/remote template resolver."""
+    from protenix.data.template.template_finalizer import reject_persistent_template_cache
     from protenix.data.template.template_utils import TemplateHitFeaturizer
 
     template_config = data_configs["template"]
+    reject_persistent_template_cache(template_config.get("prot_template_cache_dir"))
     mmcif_dir = template_config["prot_template_mmcif_dir"]
     fetch_remote = template_config.get("fetch_remote", True)
     if fetch_remote and mmcif_dir:
@@ -135,7 +138,7 @@ def _create_template_finalizer_featurizer(
         )
     return TemplateHitFeaturizer(
         mmcif_dir=mmcif_dir,
-        template_cache_dir=template_config["prot_template_cache_dir"],
+        template_cache_dir=None,
         max_hits=4,
         kalign_binary_path=resolved_kalign_path,
         max_template_date=max_template_date,
@@ -228,7 +231,6 @@ def preprocess_input(
     nhmmer_n_cpu: Optional[int] = None,
     intermediate_json_path: Optional[str] = None,
     kalign_binary_path: Optional[str] = None,
-    finalize_template_hits: bool = False,
     max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> str:
     """
@@ -256,8 +258,6 @@ def preprocess_input(
             naming when this is not set.
         kalign_binary_path (Optional[str]): Kalign binary used while finalizing
             template hit lists.
-        finalize_template_hits (bool): Convert A3M/HHR templates into explicit
-            workflow-private sidecars. Disabled for direct prep/mt compatibility.
         max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
@@ -269,10 +269,6 @@ def preprocess_input(
     if intermediate_json_path is not None:
         intermediate_json_path = os.path.abspath(
             os.path.expanduser(intermediate_json_path)
-        )
-    if finalize_template_hits and intermediate_json_path is None:
-        raise ValueError(
-            "Template finalization requires a workflow-private intermediate JSON path."
         )
 
     # 1. Protein MSA search
@@ -297,16 +293,11 @@ def preprocess_input(
             hmmsearch_binary_path=hmmsearch_binary_path,
             hmmbuild_binary_path=hmmbuild_binary_path,
             seqres_database_path=seqres_database_path,
-            finalized_sidecar_prefix=(
-                intermediate_json_path if finalize_template_hits else None
-            ),
             template_featurizer_factory=(
                 lambda: _create_template_finalizer_featurizer(
                     kalign_binary_path, max_template_date
                 )
-            )
-            if finalize_template_hits
-            else None,
+            ),
             max_template_date=max_template_date,
         )
         actual_updated = actual_updated or template_updated
@@ -634,6 +625,7 @@ def get_default_runner(
     return InferenceRunner(configs)
 
 
+@private_runtime
 def inference_jsons(
     json_file: str,
     out_dir: str = "./output",
@@ -748,12 +740,12 @@ def inference_jsons(
 
     def preprocess_one(input_json: str) -> str:
         temporary_json = os.path.join(
-            out_dir, ".protenix_tmp", f"{uuid.uuid4().hex}.json"
+            runtime_directory(), f"{uuid.uuid4().hex}.json"
         )
         try:
             return preprocess_input(
                 input_json,
-                out_dir=out_dir,
+                out_dir=str(runtime_directory() / "search"),
                 use_msa=use_msa,
                 use_template=use_template,
                 use_rna_msa=use_rna_msa,
@@ -770,7 +762,6 @@ def inference_jsons(
                 nhmmer_n_cpu=nhmmer_n_cpu,
                 intermediate_json_path=temporary_json,
                 kalign_binary_path=kalign_binary_path,
-                finalize_template_hits=True,
                 max_template_date=max_template_date,
             )
         except Exception:
@@ -812,7 +803,7 @@ def inference_jsons(
         if not isinstance(jobs, list) or not jobs:
             raise ValueError("Inference input must contain at least one job.")
 
-        temporary_root = Path(out_dir) / ".protenix_tmp"
+        temporary_root = runtime_directory()
         successful_jobs = 0
         failures = {}
         last_exception = None
@@ -846,6 +837,7 @@ def inference_jsons(
                         continue
 
                 runner = runner_holder.get()
+                runner.configs["_runtime_dir"] = str(runtime_directory())
                 if len(jobs) > 1:
                     private_job_path = _write_private_single_job_json(
                         job,
@@ -1065,7 +1057,7 @@ def protenix_cli() -> None:
     "--use_template",
     type=bool,
     default=False,
-    help="Use templates (requires templatesPath in input JSON).",
+    help="Use proteinChain.templates; data mode searches when omitted/null.",
 )
 @click.option(
     "--use_rna_msa",
@@ -1351,11 +1343,9 @@ def predict(
         ], "Only protenix_base_default_v1.0.0, protenix_base_20250630_v1.0.0 and protenix-v2 supports template inference."
         logger.info("=" * 50)
         logger.info(
-            "Using templates for inference. Template files should have "
-            ".hrr or .a3m extensions and be specified in the JSON file.\n"
-            "Example: /path/to/template.hrr or /path/to/template.a3m\n"
-            "Note: Inference will proceed with automatic template search "
-            "if none are provided and use_template is True."
+            "Using proteinChain.templates: single-chain mmcif/mmcifPath plus "
+            "queryIndices and templateIndices. Automatic search occurs only "
+            "in data mode for omitted/null templates; [] disables search."
         )
         logger.info("=" * 50)
 

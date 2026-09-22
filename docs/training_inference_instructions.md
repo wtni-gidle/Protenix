@@ -117,17 +117,19 @@ protenix pred --input ./prepared/user_test/user_test_data.json --out_dir ./outpu
 - `--use_default_params`: (Default: `true`) Automatically configures cycles and steps based on the selected model. Set to `false` to manually override `--cycle` and `--step`.
 - `--use_tfg_guidance`: Enable Training-Free Guidance (TFG) for refined sampling.
 - `--use_msa` / `--use_template` / `--use_rna_msa`: (Default: `true`/`false`/`false`) Toggle specific features for inference.
-- `--max_template_date`: (Default: `2021-09-30`) Latest allowed template release date in `YYYY-MM-DD` format. It applies when resolving A3M/HHR template hits during data preparation or inference.
+- `--max_template_date`: (Default: `2021-09-30`) Latest allowed template release date in `YYYY-MM-DD` format. Applies to automatic template selection during data preparation, not to explicitly supplied templates.
 - `--dtype`: Set data type to `bf16` (default) or `fp32`.
 - `--trimul_kernel` / `--triatt_kernel`: Choose specialized kernels (e.g., `cuequivariance`, `triattention`) for hardware acceleration.
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).
 
-When the data pipeline is enabled, each job is written to a stable prepared JSON at
+When `--write_input_json true` (auto enables this for data mode), each job is written to a stable prepared JSON at
 `<out_dir>/<sanitised_job>/<sanitised_job>_data.json`. The prepared JSON stores
 resource paths relative to itself and can be passed back with
-`--run_data_pipeline false`. Newly searched protein/RNA MSAs and template hits are
-kept together under the job's `msas/` directory. Existing external resources are
-referenced rather than copied; resource copying and compression are separate steps.
+`--run_data_pipeline false`. Protein/RNA MSAs and single-chain template CIFs are
+materialized under the job's `msas/` directory, including existing external resources.
+Template entries live in the main JSON, not a sidecar. See the
+[prepared input contract](ensemblefold_prepared_inputs.md) for null/empty states,
+mapping indices, compression, write control and private scratch.
 
 ### Inference via Bash Script
 Alternatively, use the provided demo script for automated runs:
@@ -144,7 +146,7 @@ Key arguments in `inference_demo.sh`:
 * `sample_diffusion.N_sample`: Number of samples to generate for each structure.
 * `sample_diffusion.N_step`: Number of steps for the diffusion process (e.g., 200).
 * `model.N_cycle`: Number of recycling steps.
-* `use_template`: Whether to use structural templates (requires `templatesPath` in the input JSON).
+* `use_template`: Whether to use structural templates from `proteinChain.templates`.
 
 > **Performance Tip**: By default, specialized CUDA kernels are enabled. For significant speedups on NVIDIA GPUs, follow the [**Kernels Setup Guide**](./kernels.md).
 

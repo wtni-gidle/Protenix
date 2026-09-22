@@ -16,12 +16,9 @@
 
 from __future__ import annotations
 
-import json
 import stat
 from collections.abc import Sequence
 from pathlib import Path
-
-import numpy as np
 
 from protenix.utils.input_json import sanitise_job_name
 
@@ -54,46 +51,6 @@ def _contained_regular_file(path: Path, job_dir: Path) -> Path | None:
         return None
 
 
-def _readable_nonempty_file(path: Path, job_dir: Path) -> bool:
-    resolved_path = _contained_regular_file(path, job_dir)
-    if resolved_path is None:
-        return False
-    try:
-        with resolved_path.open("rb") as file_handle:
-            return bool(file_handle.read(1))
-    except Exception:
-        return False
-
-
-def _readable_nonempty_json_dict(path: Path, job_dir: Path) -> bool:
-    resolved_path = _contained_regular_file(path, job_dir)
-    if resolved_path is None:
-        return False
-    try:
-        with resolved_path.open("r", encoding="utf-8") as file_handle:
-            value = json.load(file_handle)
-        return isinstance(value, dict) and bool(value)
-    except Exception:
-        return False
-
-
-def _readable_nonempty_npz(path: Path, job_dir: Path) -> bool:
-    resolved_path = _contained_regular_file(path, job_dir)
-    if resolved_path is None:
-        return False
-    try:
-        with np.load(resolved_path, allow_pickle=False) as archive:
-            if not archive.files:
-                return False
-            for key in archive.files:
-                array = archive[key]
-                if array.dtype.hasobject:
-                    return False
-        return True
-    except Exception:
-        return False
-
-
 def seed_outputs_complete(
     output_dir: str | Path,
     job_name: str,
@@ -108,6 +65,8 @@ def seed_outputs_complete(
     Only the canonical AF3-style output paths for sample indices in
     ``range(num_samples)`` are considered. Full confidence must use the format
     requested by ``compress_full_confidence`` when it is enabled.
+    Only existence, regular-file type, nonzero size and containment are checked;
+    output contents and the conditions that produced them are not inspected.
     """
     if (
         isinstance(seed, bool)
@@ -135,9 +94,9 @@ def seed_outputs_complete(
                 / "summary_confidences"
                 / f"{prefix}_summary_confidences.json"
             )
-            if not _readable_nonempty_file(model_path, job_dir):
+            if _contained_regular_file(model_path, job_dir) is None:
                 return False
-            if not _readable_nonempty_json_dict(summary_path, job_dir):
+            if _contained_regular_file(summary_path, job_dir) is None:
                 return False
 
             if need_atom_confidence:
@@ -147,10 +106,7 @@ def seed_outputs_complete(
                     / "full_data"
                     / f"{prefix}_full_data{full_suffix}"
                 )
-                if compress_full_confidence:
-                    if not _readable_nonempty_npz(full_path, job_dir):
-                        return False
-                elif not _readable_nonempty_json_dict(full_path, job_dir):
+                if _contained_regular_file(full_path, job_dir) is None:
                     return False
     except Exception:
         return False

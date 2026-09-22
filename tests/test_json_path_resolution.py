@@ -21,7 +21,6 @@ from pathlib import Path
 from protenix.utils.input_json import (
     discover_input_jsons,
     load_input_json,
-    load_template_json,
 )
 
 
@@ -57,7 +56,7 @@ class TestJsonPathResolution(unittest.TestCase):
                             "count": 1,
                             "pairedMsaPath": "msas/paired.a3m",
                             "unpairedMsaPath": "",
-                            "templatesPath": "msas/templates.json",
+                            "templates": [{"mmcifPath": "msas/template.cif", "queryIndices": [0], "templateIndices": [0]}],
                             "msa": {"precomputed_msa_dir": "legacy/msa"},
                         }
                     },
@@ -99,7 +98,7 @@ class TestJsonPathResolution(unittest.TestCase):
         )
         self.assertEqual(first_protein["unpairedMsaPath"], "")
         self.assertEqual(
-            first_protein["templatesPath"], str(bundle_dir / "msas/templates.json")
+            first_protein["templates"][0]["mmcifPath"], str(bundle_dir / "msas/template.cif")
         )
         self.assertEqual(
             first_protein["msa"]["precomputed_msa_dir"],
@@ -160,57 +159,22 @@ class TestJsonPathResolution(unittest.TestCase):
             },
         )
 
-    def test_templates_sidecar_is_located_from_input_json(self):
-        bundle_dir = self.tmp_path / "bundle"
-        sidecar_path = bundle_dir / "msas/templates.json"
-        mmcif_path = bundle_dir / "msas/seq__A_template_0.cif"
-        mmcif_path.parent.mkdir(parents=True)
-        mmcif_path.write_text("data_template", encoding="utf-8")
-        self._write_json(
-            sidecar_path,
-            [
-                {
-                    "mmcifPath": "seq__A_template_0.cif",
-                    "queryIndices": [],
-                    "templateIndices": [],
-                },
-                {
-                    "mmcif": "inline_template",
-                    "queryIndices": [],
-                    "templateIndices": [],
-                },
-            ],
-        )
-        input_path = bundle_dir / "job.json"
-        self._write_json(
-            input_path,
-            [
-                {
-                    "name": "template-test",
-                    "sequences": [
-                        {
-                            "proteinChain": {
-                                "sequence": "AAA",
-                                "count": 1,
-                                "templatesPath": "msas/templates.json",
-                            }
-                        }
-                    ],
-                }
-            ],
-        )
+    def test_inline_template_resource_is_located_from_main_json(self):
+        from protenix.utils.input_json import load_inline_templates
+        bundle = self.tmp_path / "bundle"
+        cif = bundle / "msas/template.cif"
+        cif.parent.mkdir(parents=True)
+        cif.write_text("template bytes")
+        path = bundle / "job.json"
+        self._write_json(path, [{"name": "job", "sequences": [{"proteinChain": {
+            "sequence": "AAA", "count": 1,
+            "templates": [{"mmcifPath": "msas/template.cif",
+                           "queryIndices": [0], "templateIndices": [0]}]
+        }}]}])
         self._change_to_unrelated_cwd()
-
-        loaded = load_input_json(input_path)
-        resolved_sidecar = loaded[0]["sequences"][0]["proteinChain"][
-            "templatesPath"
-        ]
-
-        self.assertEqual(resolved_sidecar, str(sidecar_path))
-        sidecar = load_template_json(resolved_sidecar)
-        self.assertEqual(sidecar[0]["mmcifPath"], str(mmcif_path))
-        self.assertEqual(sidecar[0]["mmcif"], "data_template")
-        self.assertEqual(sidecar[1]["mmcif"], "inline_template")
+        templates = load_input_json(path)[0]["sequences"][0]["proteinChain"]["templates"]
+        self.assertEqual(templates[0]["mmcifPath"], str(cif))
+        self.assertEqual(load_inline_templates(templates)[0]["mmcif"], "template bytes")
 
     def test_input_discovery_keeps_invalid_jobs_for_later_validation(self):
         input_dir = self.tmp_path / "inputs"

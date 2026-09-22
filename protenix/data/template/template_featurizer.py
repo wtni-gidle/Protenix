@@ -39,9 +39,7 @@ from protenix.data.template.template_utils import (
 )
 from protenix.data.utils import pad_to
 from protenix.utils.file_io import load_json_cached
-from protenix.utils.input_json import load_template_json
 from protenix.utils.logger import get_logger
-from protenix.utils.text_io import read_text, uncompressed_suffix
 
 logger = get_logger(__name__)
 
@@ -688,16 +686,18 @@ class InferenceTemplateFeaturizer:
         curr_asym_id = 0
 
         for eid, info in enumerate(bioassembly):
-            seq, count, ctype, t_path = "", 0, LIGAND_CHAIN_TYPES, ""
+            seq, count, ctype, explicit = "", 0, LIGAND_CHAIN_TYPES, None
 
             if "proteinChain" in info:
                 c = info["proteinChain"]
-                seq, count, ctype, t_path = (
+                seq, count, ctype, explicit = (
                     c["sequence"],
                     c["count"],
                     PROTEIN_CHAIN,
-                    c.get("templatesPath", ""),
+                    c.get("templates"),
                 )
+                if "templatesPath" in c:
+                    raise ValueError("templatesPath is no longer supported; use templates")
             elif "rnaSequence" in info:
                 c = info["rnaSequence"]
                 seq, count, ctype = c["sequence"], c["count"], RNA_CHAIN
@@ -709,32 +709,11 @@ class InferenceTemplateFeaturizer:
                 seq = "X" * (atom_array.asym_id_int == curr_asym_id).sum()
 
             templates = []
-            if t_path and use_template and online_template_featurizer:
+            if explicit and use_template and online_template_featurizer:
                 assert ctype == PROTEIN_CHAIN, "Only protein templates are supported."
-                if t_path.endswith(".json"):
-                    json_list = load_template_json(t_path)
-                    results = online_template_featurizer.parse_json_templates(json_list, seq)
-                    templates = results.features
-                else:
-                    content = read_text(t_path)
-                    template_suffix = uncompressed_suffix(t_path)
-
-                    if template_suffix == ".hhr":
-                        hits = HHRParser.parse(hhr_string=content)
-                    elif template_suffix == ".a3m":
-                        hits = HmmsearchA3MParser.parse(
-                            query_seq=seq, a3m_str=content, skip_first=False
-                        )
-                    else:
-                        raise ValueError(f"Unsupported template format: {t_path}")
-
-                    result, _ = online_template_featurizer.get_templates(
-                        sequence_uid=seq,
-                        query_sequence=seq,
-                        hits=hits,
-                        max_template_date=None,
-                    )
-                    templates = result.features
+                from protenix.utils.input_json import load_inline_templates
+                results = online_template_featurizer.parse_json_templates(load_inline_templates(explicit), seq)
+                templates = results.features
 
                 logger.info(f"Found {len(templates)} templates for sequence {seq}")
 

@@ -17,6 +17,7 @@ import os
 import time
 import traceback
 import warnings
+from pathlib import Path
 from typing import Any, Mapping
 
 import torch
@@ -27,11 +28,12 @@ from protenix.data.esm.esm_featurizer import ESMFeaturizer
 from protenix.data.inference.json_to_feature import SampleDictToFeatures
 from protenix.data.msa.msa_featurizer import InferenceMSAFeaturizer
 from protenix.data.template.template_featurizer import InferenceTemplateFeaturizer
-from protenix.data.template.template_finalizer import has_template_hit_inputs
+from protenix.data.template.template_finalizer import reject_persistent_template_cache
 from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.utils import data_type_transform, make_dummy_feature
 from protenix.utils.distributed import DIST_WRAPPER
 from protenix.utils.input_json import load_input_json
+from protenix.utils.prepared_io import temporary_directory
 from protenix.utils.torch_utils import collate_fn_identity, dict_to_tensor
 
 logger = logging.getLogger(__name__)
@@ -84,50 +86,30 @@ class InferenceDataset(Dataset):
         self.inputs = load_input_json(self.input_json_path)
         json_task_name = os.path.basename(self.input_json_path).split(".")[0]
         if self.use_template:
-            template_mmcif_dir = configs.data.template.prot_template_mmcif_dir
-            requires_template_database = has_template_hit_inputs(self.inputs)
-            fetch_remote = (
-                configs.data.template.get("fetch_remote", True)
-                if requires_template_database
-                else False
+            reject_persistent_template_cache(
+                configs.get("data", {}).get("template", {}).get("prot_template_cache_dir")
             )
-            if requires_template_database and not fetch_remote:
-                assert template_mmcif_dir is not None and os.path.exists(
-                    template_mmcif_dir
-                ), (
-                    "Inference with template depends on the mmcif directory.\n"
-                    "The mmcif directory containing cif files should be placed under $PROTENIX_ROOT_DIR/mmcif.\n"
-                    "You can download it from PDB https://www.wwpdb.org/ftp/pdb-ftp-sites or\n"
-                    "refer to scripts/database/download_protenix_data.sh to download inference dependency files, "
-                    "set use_template=false for inference, or set data.template.fetch_remote=true "
-                    "to download mmCIF files on demand from PDBe."
-                )
-            elif requires_template_database:
-                if template_mmcif_dir:
-                    os.makedirs(template_mmcif_dir, exist_ok=True)
+            # Public inputs contain finalized single-chain templates only.
+            # No database/cache/remote retrieval belongs in inference-only.
             self.online_template_featurizer = TemplateHitFeaturizer(
-                mmcif_dir=configs.data.template.prot_template_mmcif_dir,
-                template_cache_dir=configs.data.template.prot_template_cache_dir,
-                max_hits=4,
-                kalign_binary_path=configs.data.template.kalign_binary_path,
-                max_template_date=configs.get(
-                    "max_template_date", "2021-09-30"
-                ),
-                release_dates_path=configs.data.template.release_dates_path,
-                obsolete_pdbs_path=configs.data.template.obsolete_pdbs_path,
-                _shuffle_top_k_prefiltered=None,
-                _max_template_candidates_num=20,
-                fetch_remote=fetch_remote,
+                mmcif_dir="", template_cache_dir=None, max_hits=4,
+                kalign_binary_path=None, fetch_remote=False,
             )
         else:
             self.online_template_featurizer = None
         esm_info = configs.get("esm", {})
-        configs.esm.embedding_dir = f"./esm_embeddings/{configs.esm.model_name}"
-        configs.esm.sequence_fpath = (
-            f"./esm_embeddings/{json_task_name}_prot_sequences.csv"
-        )
         self.esm_enable = esm_info.get("enable", False)
         if self.esm_enable:
+            runtime = configs.get("_runtime_dir")
+            if not runtime:
+                # Direct dataset users own this scratch for the dataset lifetime.
+                self._esm_scratch = temporary_directory("protenix-esm-")
+                runtime = self._esm_scratch.name
+            esm_root = Path(runtime) / "esm_embeddings"
+            configs.esm.embedding_dir = str(esm_root / configs.esm.model_name)
+            configs.esm.sequence_fpath = str(
+                esm_root / f"{json_task_name}_prot_sequences.csv"
+            )
             os.makedirs(configs.esm.embedding_dir, exist_ok=True)
             os.makedirs(os.path.dirname(configs.esm.sequence_fpath), exist_ok=True)
             ESMFeaturizer.precompute_esm_embedding(
@@ -141,7 +123,7 @@ class InferenceDataset(Dataset):
                 embedding_dir=esm_info.embedding_dir,
                 sequence_fpath=esm_info.sequence_fpath,
                 embedding_dim=esm_info.embedding_dim,
-                error_dir="./esm_embeddings/",
+                error_dir=str(esm_root),
             )
 
     def process_one(

@@ -18,10 +18,16 @@ import shutil
 import tempfile
 from typing import Any, Iterable, List, Optional, Sequence, Tuple
 
+from protenix.utils.prepared_io import temporary_directory
+
 
 @contextlib.contextmanager
 def tmpdir_manager(base_dir: Optional[str] = None):
     """Context manager that deletes a temporary directory on exit."""
+    if base_dir is None:
+        with temporary_directory("protenix-align-") as tmpdir:
+            yield tmpdir
+        return
     tmpdir = tempfile.mkdtemp(dir=base_dir)
     try:
         yield tmpdir

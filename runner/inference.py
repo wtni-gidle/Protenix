@@ -569,6 +569,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         )
         configs["_write_now_warning_emitted"] = True
 
+    incomplete_seeds_by_job = None
     if configs.get("skip", False):
         from protenix.utils.prediction_resume import (
             incomplete_model_seeds,
@@ -588,8 +589,9 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
             for job in json_data
         )
         if can_check_all_jobs:
+            incomplete_seeds_by_job = {}
             for job in json_data:
-                incomplete_seed_set.update(
+                job_seeds = set(
                     incomplete_model_seeds(
                         configs.dump_dir,
                         job["name"],
@@ -603,6 +605,8 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                         ),
                     )
                 )
+                incomplete_seeds_by_job[job["name"]] = job_seeds
+                incomplete_seed_set.update(job_seeds)
             seeds = [seed for seed in requested_seeds if seed in incomplete_seed_set]
         else:
             logger.warning(
@@ -637,6 +641,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
 
     num_data = len(dataloader.dataset)
     successful_predictions = 0
+    completed_predictions_skipped = 0
     failed_predictions = []
     t0_start = time.time()
     for seed in seeds:
@@ -648,6 +653,15 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                 t2_start = time.time()
                 data, atom_array, data_error_message = batch[0]
                 sample_name = data["sample_name"]
+
+                # A shared seed can be incomplete for one job but complete for
+                # another. Preserve the latter without splitting sample work.
+                if (
+                    incomplete_seeds_by_job is not None
+                    and seed not in incomplete_seeds_by_job.get(sample_name, seeds)
+                ):
+                    completed_predictions_skipped += 1
+                    continue
 
                 if len(data_error_message) > 0:
                     logger.error(
@@ -719,7 +733,9 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         logger.info(
             f"[Rank {DIST_WRAPPER.rank}] Seed {seed} completed in {t1_end - t1_start:.2f}s."
         )
-    if successful_predictions == 0:
+    if successful_predictions == 0 and (
+        completed_predictions_skipped == 0 or failed_predictions
+    ):
         raise RuntimeError(
             f"Inference produced no successful predictions for {configs.input_json_path}."
         )

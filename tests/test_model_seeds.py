@@ -306,7 +306,8 @@ class BatchModelSeedsIntegrationTest(unittest.TestCase):
                     self.assertIs(active_runner, runner)
                     private_path = Path(configs["input_json_path"])
                     self.assertTrue(private_path.is_file())
-                    self.assertEqual(private_path.parent, out_dir / ".protenix_tmp")
+                    self.assertEqual(private_path.parent, Path(configs["_runtime_dir"]))
+                    self.assertFalse(private_path.is_relative_to(out_dir))
                     job = load_input_json(private_path)[0]
                     observed.append((job["name"], list(configs["seeds"])))
 
@@ -459,7 +460,8 @@ class BatchModelSeedsIntegrationTest(unittest.TestCase):
 
         def fake_infer_predict(_runner, configs):
             active_path = Path(configs["input_json_path"])
-            self.assertEqual(active_path.parent, out_dir / ".protenix_tmp")
+            self.assertEqual(active_path.parent, Path(configs["_runtime_dir"]))
+            self.assertFalse(active_path.is_relative_to(out_dir))
             job = load_input_json(active_path)[0]
             observed.append((job["name"], list(configs["seeds"])))
 

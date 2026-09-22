@@ -1,78 +1,52 @@
-import json
-import os
-import unittest
+"""Inline JSON template shape and hit contract (real CIF, no database)."""
 import numpy as np
-
-from protenix.data.template.template_utils import TemplateHitFeaturizer
 from protenix.data.constants import ATOM37_NUM
-from protenix.utils.input_json import load_input_json
+from protenix.data.template.template_utils import TemplateHitFeaturizer
+from tests.test_inline_prepared_contract import cif_missing, entry
 
-class TestJsonTemplateParser(unittest.TestCase):
-    def test_json_template_parser(self):
-        # Load the JSON file
-        json_path = "examples/example_with_json_template/demo_ab.json"
-        self.assertTrue(os.path.exists(json_path), f"File {json_path} does not exist")
-        
-        data = load_input_json(json_path)
-            
-        # Extract the sequence and template list
-        protein_chain = data[0]["sequences"][0]["proteinChain"]
-        query_sequence = protein_chain["sequence"]
-        template_path = protein_chain["templatesPath"]
-        
-        self.assertTrue(len(query_sequence) > 0)
-        
-        # Instantiate the featurizer
-        featurizer = TemplateHitFeaturizer(
-            mmcif_dir="/tmp/dummy_mmcif_dir",
-            template_cache_dir=None,
-            kalign_binary_path=None,
-            _zero_center_positions=True,
-        )
 
-        with open(template_path, "r") as f:
-            template_list = json.load(f)
-        
-        # Call the parse_json_templates method
-        result = featurizer.parse_json_templates(
-            template_list=template_list,
-            query_sequence=query_sequence
-        )
-        
-        # Assertions
-        self.assertEqual(len(result.errors), 0, f"Expected no errors, but got: {result.errors}")
-        self.assertEqual(len(result.features), len(template_list))
-        self.assertEqual(len(result.hits), len(template_list))
-        
-        num_query = len(query_sequence)
-        
-        for i, feature in enumerate(result.features):
-            self.assertIn("template_all_atom_positions", feature)
-            self.assertIn("template_all_atom_masks", feature)
-            self.assertIn("template_aatype", feature)
-            self.assertIn("template_sequence", feature)
-            self.assertIn("template_domain_names", feature)
-            self.assertIn("template_sum_probs", feature)
-            self.assertIn("template_release_date", feature)
-            
-            pos = feature["template_all_atom_positions"]
-            mask = feature["template_all_atom_masks"]
-            aatype = feature["template_aatype"]
-            
-            # Check shapes
-            self.assertEqual(pos.shape, (num_query, ATOM37_NUM, 3), f"Expected pos shape {(num_query, ATOM37_NUM, 3)}, got {pos.shape}")
-            self.assertEqual(mask.shape, (num_query, ATOM37_NUM), f"Expected mask shape {(num_query, ATOM37_NUM)}, got {mask.shape}")
-            self.assertEqual(aatype.shape, (num_query,), f"Expected aatype shape {(num_query,)}, got {aatype.shape}")
-            
-            # Check if some masks are valid (not all zeros)
-            self.assertTrue(np.sum(mask) > 0, "Expected atom masks to contain non-zero values")
-            
-            # Check hit information
-            hit = result.hits[i]
-            self.assertEqual(hit.query, query_sequence)
-            self.assertEqual(hit.aligned_cols, len(template_list[i]["queryIndices"]))
-            self.assertEqual(len(hit.indices_query), num_query)
-            self.assertEqual(len(hit.indices_hit), num_query)
+def test_model_feature_consumer_reloads_current_cif_and_copies_entities(tmp_path, cif_missing):
+    from biotite.structure import AtomArray
+    from protenix.data.template.template_featurizer import InferenceTemplateFeaturizer
+    from protenix.data.template.single_chain import parse_single_chain
+    seq = parse_single_chain(cif_missing)[0].chain_to_seqres["A"]
+    n = len(seq)
+    atoms = AtomArray(n * 2)
+    atoms.set_annotation("asym_id_int", np.repeat([0, 1], n))
+    atoms.set_annotation("chain_id", np.repeat(["A", "B"], n))
+    atoms.set_annotation("res_id", np.tile(np.arange(1, n + 1), 2))
+    atoms.set_annotation("centre_atom_mask", np.ones(n * 2, dtype=bool))
+    resource = tmp_path / "template.cif"
+    resource.write_text(cif_missing)
+    assembly = [{"proteinChain": {"sequence": seq, "count": 2, "templates": [{
+        "mmcifPath": str(resource), "queryIndices": list(range(n)),
+        "templateIndices": list(range(n))}]}}]
+    reader = TemplateHitFeaturizer(mmcif_dir="", fetch_remote=False)
+    def consume():
+        return InferenceTemplateFeaturizer.make_template_feature(
+            assembly, atoms, use_template=True, online_template_featurizer=reader)
+    before = consume()
+    assert before["template_atom_mask"][0, 4].sum() == 0
+    assert before["template_atom_mask"][0, 4 + n].sum() == 0
+    np.testing.assert_array_equal(before["template_atom_mask"][0, :n], before["template_atom_mask"][0, n:])
+    # Same path now contains a complete file. No stale feature/resource cache.
+    from pathlib import Path
+    resource.write_text((Path(__file__).parents[1] / "examples/2lwu.cif").read_text())
+    after = consume()
+    assert after["template_atom_mask"][0, 4].sum() > 0
+    disabled = InferenceTemplateFeaturizer.make_template_feature(assembly, atoms, use_template=False, online_template_featurizer=reader)
+    assert disabled["template_atom_mask"].sum() == 0
 
-if __name__ == "__main__":
-    unittest.main()
+
+def test_json_template_parser(cif_missing):
+    result = TemplateHitFeaturizer(mmcif_dir="", fetch_remote=False).parse_json_templates([entry(cif_missing)], "AAA")
+    assert not result.errors
+    assert len(result.features) == len(result.hits) == 1
+    feature = result.features[0]
+    assert feature["template_all_atom_positions"].shape == (3, ATOM37_NUM, 3)
+    assert feature["template_all_atom_masks"].shape == (3, ATOM37_NUM)
+    assert feature["template_aatype"].shape == (3,)
+    assert np.sum(feature["template_all_atom_masks"]) > 0
+    result_hit = result.hits[0]
+    assert result_hit.query == "AAA" and result_hit.aligned_cols == 3
+    assert result_hit.indices_query == [0, 1, 2] and result_hit.indices_hit == [3, 4, 5]

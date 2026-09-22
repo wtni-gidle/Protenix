@@ -144,3 +144,130 @@ def test_all_failed_still_raises(tmp_path, fake_model):
     runner.configs.input_json_path = str(_write_jobs(tmp_path / "job.json", ["bad_job"]))
     with pytest.raises(RuntimeError, match="no successful predictions"):
         inference.infer_predict(runner, runner.configs)
+
+
+@pytest.mark.parametrize(
+    ("assigned_names", "expected_error", "expected_visits"),
+    [
+        (["complete"], None, [("complete", 7), ("complete", 8)]),
+        (
+            ["complete", "bad_job"],
+            "no successful predictions",
+            [
+                ("complete", 7),
+                ("bad_job", 7),
+                ("complete", 8),
+                ("bad_job", 8),
+            ],
+        ),
+        ([], "no successful predictions", []),
+    ],
+)
+def test_direct_resume_distinguishes_skip_only_assigned_slice_from_no_success(
+    tmp_path,
+    fake_model,
+    monkeypatch,
+    assigned_names,
+    expected_error,
+    expected_visits,
+):
+    runner, _, output = fake_model
+    jobs_path = _write_jobs(tmp_path / "jobs.json", ["complete", "bad_job"])
+    runner.configs.input_json_path = str(jobs_path)
+    runner.configs.skip = True
+    runner.configs.sample_diffusion = {"N_sample": 1}
+    runner.configs.model = {"N_model_seed": 1}
+    runner.configs.need_atom_confidence = False
+    visits = []
+
+    class AssignedSliceLoader:
+        def __init__(self, jobs):
+            self.dataset = jobs
+
+        def __iter__(self):
+            for index, job in enumerate(self.dataset):
+                name = job["name"]
+                if name not in assigned_names:
+                    continue
+                visits.append((name, torch.initial_seed()))
+                data = dict(
+                    sample_name=name,
+                    sample_index=index,
+                    entity_poly_type={"1": "polypeptide(L)"},
+                    **{
+                        key: torch.tensor(1)
+                        for key in ("N_asym", "N_token", "N_atom", "N_msa")
+                    },
+                )
+                yield [(data, None, "")]
+
+    monkeypatch.setattr(
+        inference,
+        "get_inference_dataloader",
+        lambda configs: AssignedSliceLoader(load_input_json(configs.input_json_path)),
+    )
+    monkeypatch.setattr(
+        "protenix.utils.prediction_resume.incomplete_model_seeds",
+        lambda _output, job_name, seeds, *_args, **_kwargs: (
+            [] if job_name == "complete" else list(seeds)
+        ),
+    )
+
+    if expected_error is None:
+        inference.infer_predict(runner, runner.configs)
+        assert not (output / "complete/models").exists()
+    else:
+        with pytest.raises(RuntimeError, match=expected_error):
+            inference.infer_predict(runner, runner.configs)
+
+    assert visits == expected_visits
+
+
+@pytest.mark.parametrize("damage", ["missing", "empty"])
+def test_direct_resume_preserves_complete_job_seeds_and_reruns_all_samples(
+    tmp_path, fake_model, damage
+):
+    runner, _, output = fake_model
+    runner.configs.input_json_path = str(_write_jobs(
+        tmp_path / "jobs.json", ["complete", "partial"]
+    ))
+    runner.configs.skip = True
+    runner.configs.sample_diffusion = {"N_sample": 2}
+    runner.configs.model = {"N_model_seed": 2}
+    runner.configs.need_atom_confidence = False
+    preserved = {}
+    for job in ("complete", "partial"):
+        for seed in (7, 8):
+            for sample in range(4):
+                prefix = f"seed-{seed}_sample-{sample}"
+                for folder, suffix in (("models", "model.cif"),
+                                       ("summary_confidences", "summary_confidences.json")):
+                    path = output / job / folder / f"{prefix}_{suffix}"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text('data_model' if folder == 'models' else '{"score":1}')
+                    if job == "complete" or seed == 7:
+                        preserved[path] = (path.read_bytes(), path.stat().st_mtime_ns)
+    damaged = output / "partial/summary_confidences/seed-8_sample-3_summary_confidences.json"
+    if damage == "missing":
+        damaged.unlink()
+    else:
+        damaged.write_bytes(b"")
+    predicted = []
+    dumped = []
+
+    def predict(data):
+        predicted.append((data["sample_name"], torch.initial_seed(),
+                          runner.configs.sample_diffusion.N_sample,
+                          runner.configs.model.N_model_seed))
+        return {"coordinate": torch.zeros((4, 1, 3))}
+
+    def dump(*, pdb_id, seed, pred_dict, **_kwargs):
+        dumped.append((pdb_id, seed, pred_dict["coordinate"].shape[0]))
+
+    runner.predict = predict
+    runner.dumper.dump = dump
+    inference.infer_predict(runner, runner.configs)
+    assert predicted == [("partial", 8, 2, 2)]
+    assert dumped == [("partial", 8, 4)]
+    assert all((path.read_bytes(), path.stat().st_mtime_ns) == before
+               for path, before in preserved.items())

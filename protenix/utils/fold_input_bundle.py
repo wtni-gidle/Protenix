@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from protenix.utils.input_json import sanitise_job_name
-from protenix.utils.text_io import read_text, uncompressed_suffix, write_zstd_text_atomic
+from protenix.utils.text_io import read_text, write_zstd_text_atomic
 
 
 _CHAIN_LABELS = string.ascii_uppercase + string.ascii_lowercase
@@ -138,7 +138,7 @@ class _BundleMaterialiser:
         msa_dir_value = legacy.get("precomputed_msa_dir")
         if isinstance(msa_dir_value, str) and msa_dir_value:
             msa_dir = Path(msa_dir_value)
-            if "pairedMsaPath" not in chain:
+            if "pairedMsaPath" not in chain and chain.get("pairedMsa") is None:
                 pairing_path = msa_dir / "pairing.a3m"
                 if pairing_path.is_file():
                     output_path = self._msa_output_path(prefix, "pairedmsa")
@@ -146,7 +146,7 @@ class _BundleMaterialiser:
                     chain["pairedMsaPath"] = output_path.relative_to(
                         self.job_dir
                     ).as_posix()
-            if "unpairedMsaPath" not in chain:
+            if "unpairedMsaPath" not in chain and chain.get("unpairedMsa") is None:
                 non_pairing_path = msa_dir / "non_pairing.a3m"
                 if non_pairing_path.is_file():
                     output_path = self._msa_output_path(prefix, "unpairedmsa")
@@ -159,82 +159,32 @@ class _BundleMaterialiser:
         # directory dependency after those files have been converted.
         chain.pop("msa", None)
 
-    def _template_sidecar_path(self, prefix: str) -> Path:
-        return self.msas_dir / f"{prefix}_templates.json"
-
-    def _materialise_explicit_templates(
-        self, source_path: Path, *, prefix: str
-    ) -> Path:
-        raw_templates = json.loads(read_text(source_path))
-        if not isinstance(raw_templates, list):
-            raise ValueError(f"Template sidecar must contain a list: {source_path}")
-
-        materialised_templates = []
-        cif_suffix = ".cif.zst" if self.compress_fold_input else ".cif"
-        for template_index, raw_template in enumerate(raw_templates):
-            if not isinstance(raw_template, dict):
-                raise ValueError(
-                    f"Invalid template entry {template_index} in {source_path}"
-                )
-            template = deepcopy(raw_template)
-            inline_mmcif = template.get("mmcif")
-            mmcif_path_value = template.get("mmcifPath")
-            if isinstance(inline_mmcif, str) and inline_mmcif:
-                mmcif = inline_mmcif
-            elif isinstance(mmcif_path_value, str) and mmcif_path_value:
-                mmcif_path = Path(mmcif_path_value)
-                if not mmcif_path.is_absolute():
-                    mmcif_path = (source_path.parent / mmcif_path).resolve()
-                mmcif = read_text(mmcif_path)
-            else:
-                raise ValueError(
-                    f"Template entry {template_index} has no mmcif content: "
-                    f"{source_path}"
-                )
-
-            cif_path = self.msas_dir / (
-                f"{prefix}_template_{template_index}{cif_suffix}"
-            )
-            self._write_resource_text(cif_path, mmcif)
-            template.pop("mmcif", None)
-            # The sidecar is itself in msas/, so a basename avoids resolving
-            # the resource as msas/msas/<file>.
-            template["mmcifPath"] = cif_path.name
-            materialised_templates.append(template)
-
-        sidecar_path = self._template_sidecar_path(prefix)
-        self._reserve(sidecar_path)
-        _write_json_atomic(sidecar_path, materialised_templates)
-        return sidecar_path
-
-    def _materialise_template_hits(self, source_path: Path, *, prefix: str) -> Path:
-        logical_suffix = uncompressed_suffix(source_path).lower()
-        if logical_suffix not in {".a3m", ".hhr"}:
-            raise ValueError(f"Unsupported template format: {source_path}")
-        compression_suffix = ".zst" if self.compress_fold_input else ""
-        output_path = self.msas_dir / (
-            f"{prefix}_template_hits{logical_suffix}{compression_suffix}"
-        )
-        self._write_resource_text(output_path, read_text(source_path))
-        # A3M/HHR contains hit/alignment information only. It is archived here
-        # but still requires the configured template structure database later.
-        return output_path
 
     def _materialise_templates(
         self, chain: dict[str, Any], *, prefix: str
     ) -> None:
-        value = chain.get("templatesPath")
-        if not isinstance(value, str) or not value:
+        if "templatesPath" in chain:
+            raise ValueError("templatesPath is no longer supported; use templates")
+        templates = chain.get("templates")
+        if templates is None:
             return
-        source_path = Path(value)
-        logical_suffix = uncompressed_suffix(source_path).lower()
-        if logical_suffix == ".json":
-            output_path = self._materialise_explicit_templates(
-                source_path, prefix=prefix
-            )
-        else:
-            output_path = self._materialise_template_hits(source_path, prefix=prefix)
-        chain["templatesPath"] = output_path.relative_to(self.job_dir).as_posix()
+        from protenix.utils.input_json import load_inline_templates
+        from protenix.data.template.single_chain import extract_single_chain, parse_single_chain
+        from protenix.data.template.template_finalizer import validate_template_mapping
+        prepared = []
+        for index, template in enumerate(load_inline_templates(templates)):
+            obj, chain_id = parse_single_chain(template["mmcif"])
+            validate_template_mapping(template.get("queryIndices", []), template.get("templateIndices", []),
+                                      query_length=len(chain["sequence"]),
+                                      template_length=len(obj.chain_to_seqres[chain_id]))
+            cif = extract_single_chain(obj, chain_id)
+            suffix = ".cif.zst" if self.compress_fold_input else ".cif"
+            path = self.msas_dir / f"{prefix}_template_{index}{suffix}"
+            self._write_resource_text(path, cif)
+            template.pop("mmcif", None)
+            template["mmcifPath"] = path.relative_to(self.job_dir).as_posix()
+            prepared.append(template)
+        chain["templates"] = prepared
 
     def materialise(self, job: dict[str, Any]) -> dict[str, Any]:
         prepared_job = deepcopy(job)

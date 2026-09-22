@@ -874,13 +874,14 @@ class TemplateHitFeaturizer:
         num_query = len(query_sequence)
         
         for idx, template_info in enumerate(template_list):
+            if "chainId" in template_info:
+                raise ValueError("chainId is no longer supported; provide a single-chain CIF")
             mmcif_str = template_info.get("mmcif", "")
             q_indices = template_info.get("queryIndices", [])
             t_indices = template_info.get("templateIndices", [])
 
             if not mmcif_str:
-                errors.append(f"Invalid template info at index {idx}")
-                continue
+                raise ValueError(f"Missing mmCIF content at template index {idx}")
 
             try:
                 validate_template_mapping(
@@ -890,46 +891,17 @@ class TemplateHitFeaturizer:
                     template_length=None,
                 )
             except (TypeError, ValueError) as e:
-                errors.append(f"Invalid template mapping at index {idx}: {e}")
-                continue
+                raise ValueError(f"Invalid template mapping at index {idx}: {e}") from e
 
             mapping = dict(zip(q_indices, t_indices))
-            chain_id_hint = template_info.get("chainId")
             domain_name = template_info.get("domainName", f"temp_{idx}")
             sum_probability = template_info.get("sumProbability", 1.0)
             release_date = template_info.get("releaseDate", "9999-12-31")
 
             try:
-                if chain_id_hint:
-                    res = TemplateParser.parse(
-                        file_id=str(domain_name).split("_", 1)[0],
-                        mmcif_string=mmcif_str,
-                        auth_chain_id=str(chain_id_hint),
-                    )
-                else:
-                    # Backwards compatibility for existing simplified explicit
-                    # templates, which historically selected the first chain.
-                    res = TemplateParser.parse_simple_cif(
-                        file_id=f"temp_{idx}", mmcif_string=mmcif_str
-                    )
-                if not res.mmcif_object:
-                    errors.append(f"No mmcif object generated for index {idx}. Errors: {res.errors}")
-                    continue
-                
-                chain_ids = list(res.mmcif_object.chain_to_seqres.keys())
-                if not chain_ids:
-                    errors.append(f"No valid chain found in mmCIF at index {idx}")
-                    continue
-                if chain_id_hint:
-                    if str(chain_id_hint) not in chain_ids:
-                        errors.append(
-                            f"Chain {chain_id_hint} not found in mmCIF at index {idx}"
-                        )
-                        continue
-                    chain_id = str(chain_id_hint)
-                else:
-                    chain_id = chain_ids[0]
-                template_seq = res.mmcif_object.chain_to_seqres[chain_id]
+                from protenix.data.template.single_chain import parse_single_chain
+                mmcif_object, chain_id = parse_single_chain(mmcif_str, str(domain_name))
+                template_seq = mmcif_object.chain_to_seqres[chain_id]
 
                 validate_template_mapping(
                     q_indices,
@@ -939,11 +911,10 @@ class TemplateHitFeaturizer:
                 )
 
                 all_pos, all_mask = self._hit_processor._get_atom_positions(
-                    res.mmcif_object, chain_id, 150.0, self._zero_center_positions
+                    mmcif_object, chain_id, 150.0, self._zero_center_positions
                 )
             except Exception as e:
-                errors.append(f"Failed to parse mmCIF at index {idx}: {e}")
-                continue
+                raise ValueError(f"Failed to parse explicit template at index {idx}: {e}") from e
 
             out_pos = np.zeros((num_query, ATOM37_NUM, 3), dtype=np.float32)
             out_mask = np.zeros((num_query, ATOM37_NUM), dtype=np.float32)

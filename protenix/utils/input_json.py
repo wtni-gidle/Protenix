@@ -17,7 +17,6 @@
 import json
 import os
 import string
-import uuid
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable
@@ -57,7 +56,21 @@ def _transform_input_json_paths(
 
             protein = sequence.get("proteinChain")
             if isinstance(protein, dict):
-                for field in ("pairedMsaPath", "unpairedMsaPath", "templatesPath"):
+                if "templatesPath" in protein:
+                    raise ValueError("templatesPath is no longer supported; use proteinChain.templates")
+                templates = protein.get("templates")
+                if templates is not None:
+                    if not isinstance(templates, list):
+                        raise ValueError("proteinChain.templates must be a list or null")
+                    for template in templates:
+                        if not isinstance(template, dict):
+                            raise ValueError("Each template must be an object")
+                        if "chainId" in template:
+                            raise ValueError("chainId is no longer supported; provide a single-chain CIF")
+                        value = template.get("mmcifPath")
+                        if isinstance(value, str):
+                            template["mmcifPath"] = transform(value)
+                for field in ("pairedMsaPath", "unpairedMsaPath"):
                     value = protein.get(field)
                     if isinstance(value, str):
                         protein[field] = transform(value)
@@ -112,22 +125,22 @@ def load_input_json(json_path: str | os.PathLike[str]) -> Any:
     return resolve_input_json_paths(json_data, json_path)
 
 
-def load_template_json(json_path: str | os.PathLike[str]) -> Any:
-    """Load a template sidecar, resolving ``mmcifPath`` from that sidecar."""
-    with open(json_path, "r", encoding="utf-8") as f:
-        templates = json.load(f)
-    if not isinstance(templates, list):
-        return templates
 
-    for template in templates:
-        if not isinstance(template, dict) or template.get("mmcif"):
-            continue
-        mmcif_path = template.get("mmcifPath")
-        if isinstance(mmcif_path, str) and mmcif_path:
-            resolved_path = resolve_path_from_json(mmcif_path, json_path)
-            template["mmcifPath"] = resolved_path
-            template["mmcif"] = read_text(resolved_path)
-    return templates
+
+def load_inline_templates(templates: list[dict]) -> list[dict]:
+    """Read current explicit CIF resources; paths were resolved from the main JSON."""
+    result = deepcopy(templates)
+    for template in result:
+        if "chainId" in template:
+            raise ValueError("chainId is no longer supported; provide a single-chain CIF")
+        inline, path = template.get("mmcif"), template.get("mmcifPath")
+        if inline and path:
+            raise ValueError("Specify only one of mmcif and mmcifPath")
+        if path:
+            template["mmcif"] = read_text(path)
+        elif not inline:
+            raise ValueError("Explicit template needs mmcifPath or mmcif")
+    return result
 
 
 def discover_input_jsons(path: str | os.PathLike[str]) -> list[str]:
@@ -201,35 +214,21 @@ def write_prepared_input_jsons(
     jobs = load_input_json(input_json_path)
     safe_names = prepared_job_names(input_json_path)
     output_root = Path(output_dir).expanduser().resolve()
-    prepared_jobs = []
-    for job, safe_name in zip(jobs, safe_names):
-        job_dir = output_root / safe_name
-        prepared_path = job_dir / f"{safe_name}_data.json"
-        if output_root not in prepared_path.resolve().parents:
-            raise ValueError(f"Prepared path escapes output directory: {prepared_path}")
-        materialised_job = materialise_fold_input_job(
-            job,
-            job_dir,
-            safe_name,
-            compress_fold_input=compress_fold_input,
-        )
-        prepared_job = make_input_json_paths_relative(
-            [materialised_job], prepared_path
-        )
-        prepared_jobs.append((job_dir, prepared_path, prepared_job))
-
-    prepared_paths = []
-    for job_dir, prepared_path, prepared_job in prepared_jobs:
-        job_dir.mkdir(parents=True, exist_ok=True)
-        temporary_path = prepared_path.with_name(
-            f".{prepared_path.name}.{uuid.uuid4().hex}.tmp"
-        )
-        try:
-            with open(temporary_path, "w", encoding="utf-8") as f:
-                json.dump(prepared_job, f, indent=4)
-            os.replace(temporary_path, prepared_path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
-        prepared_paths.append(str(prepared_path))
-
-    return prepared_paths
+    from protenix.utils.prepared_io import temporary_directory, publish_bundle
+    # Stage all jobs before any publication: output paths can also be inputs.
+    with temporary_directory("protenix-bundle-") as scratch:
+        prepared_jobs = []
+        for job, safe_name in zip(jobs, safe_names):
+            job_dir = output_root / safe_name
+            if output_root not in job_dir.resolve().parents:
+                raise ValueError(f"Prepared path escapes output directory: {job_dir}")
+            stage = Path(scratch) / safe_name
+            stage.mkdir()
+            prepared_path = job_dir / f"{safe_name}_data.json"
+            materialised = materialise_fold_input_job(job, stage, safe_name, compress_fold_input=compress_fold_input)
+            prepared = make_input_json_paths_relative([materialised], prepared_path)
+            (stage / prepared_path.name).write_text(json.dumps(prepared, indent=4), encoding="utf-8")
+            prepared_jobs.append((stage, job_dir, prepared_path))
+        for stage, job_dir, prepared_path in prepared_jobs:
+            publish_bundle(stage, job_dir, prepared_path.name)
+        return [str(path) for _, _, path in prepared_jobs]

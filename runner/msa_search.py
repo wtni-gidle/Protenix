@@ -26,6 +26,21 @@ from protenix.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+def _has_msa(protein: dict, kind: str) -> bool:
+    """Match consumer precedence: inline (including empty) wins over a path."""
+    inline = protein.get(f"{kind}Msa")
+    if inline is not None:
+        if not isinstance(inline, str):
+            raise ValueError(f"{kind}Msa must be a string or null")
+        return True
+    path = protein.get(f"{kind}MsaPath")
+    if path:
+        if not os.path.isfile(path):
+            raise FileNotFoundError(f"Specified {kind}MsaPath does not exist: {path}")
+        return True
+    return False
+
+
 def need_msa_search(json_data: dict) -> bool:
     """
     Check if the input JSON data needs an MSA search.
@@ -42,24 +57,9 @@ def need_msa_search(json_data: dict) -> bool:
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence:
             protein_chain = sequence["proteinChain"]
-            paired_msa_path = protein_chain.get("pairedMsaPath")
-            unpaired_msa_path = protein_chain.get("unpairedMsaPath")
-
-            if paired_msa_path is None and unpaired_msa_path is None:
-                need_msa = True
-            else:
-                if paired_msa_path is not None and not os.path.exists(paired_msa_path):
-                    logger.warning(
-                        f"pairedMsaPath {paired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
-                if unpaired_msa_path is not None and not os.path.exists(
-                    unpaired_msa_path
-                ):
-                    logger.warning(
-                        f"unpairedMsaPath {unpaired_msa_path} does not exist, will re-search MSA."
-                    )
-                    need_msa = True
+            paired = _has_msa(protein_chain, "paired")
+            unpaired = _has_msa(protein_chain, "unpaired")
+            need_msa = need_msa or not (paired or unpaired)
     return need_msa
 
 
@@ -118,9 +118,10 @@ def convert_one_json_dict(obj: dict[str, Any]) -> tuple[dict[str, Any], bool]:
                         non_pairing_path = f"{precomputed_msa_dir}/non_pairing.a3m"
 
                         # Add new fields if the files exist
-                        if os.path.exists(pairing_path):
+                        protein_chain = sequence["proteinChain"]
+                        if not _has_msa(protein_chain, "paired") and os.path.exists(pairing_path):
                             protein_chain["pairedMsaPath"] = pairing_path
-                        if os.path.exists(non_pairing_path):
+                        if not _has_msa(protein_chain, "unpaired") and os.path.exists(non_pairing_path):
                             protein_chain["unpairedMsaPath"] = non_pairing_path
 
     return obj, format_converted
@@ -182,6 +183,13 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
         protein_msa_res = dict(zip(protein_seqs, msa_res_subdirs))
         for sequence in infer_seq["sequences"]:
             if "proteinChain" in sequence.keys():
+                protein = sequence["proteinChain"]
+                paired = _has_msa(protein, "paired")
+                unpaired = _has_msa(protein, "unpaired")
+                # Native supports a supplied single channel. Do not reinterpret
+                # another entity's search as permission to change this entity.
+                if paired or unpaired:
+                    continue
                 precomputed_msa_dir = protein_msa_res[
                     sequence["proteinChain"]["sequence"]
                 ]

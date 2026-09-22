@@ -18,7 +18,6 @@ import os
 import pathlib
 import re
 import subprocess
-import tempfile
 import time
 from typing import Any, Final, List, Mapping, Optional, Protocol, Union
 
@@ -29,6 +28,7 @@ from protenix.data.tools.common import (
     lazy_fasta_parse,
 )
 from protenix.utils.logger import get_logger
+from protenix.utils.prepared_io import temporary_directory
 
 logger = get_logger(__name__)
 
@@ -110,7 +110,7 @@ class Hmmalign(BinaryWrapper):
         Returns:
             Aligned sequences in A3M format.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory("protenix-search-") as tmp:
             prof_p, in_p, out_p = f"{tmp}/p", f"{tmp}/i", f"{tmp}/o"
             pathlib.Path(prof_p).write_text(profile)
             pathlib.Path(in_p).write_text(a3m)
@@ -168,7 +168,7 @@ class Hmmbuild(BinaryWrapper):
         Returns:
             The HMM profile string.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory("protenix-search-") as tmp:
             in_p, out_p = f"{tmp}/i", f"{tmp}/o"
             pathlib.Path(in_p).write_text(msa)
             cmd = [self.path, "--informat", informat] + self.opts
@@ -254,7 +254,7 @@ class Hmmsearch(BinaryWrapper):
         Returns:
             Search result in A3M format.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory("protenix-search-") as tmp:
             hmm_p, sto_p = f"{tmp}/q.hmm", f"{tmp}/o.sto"
             pathlib.Path(hmm_p).write_text(hmm)
             cmd = (
@@ -333,7 +333,7 @@ class Jackhmmer(BinaryWrapper, MsaTool):
         Returns:
             MsaToolResult object.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory("protenix-search-") as tmp:
             fa_p, sto_p = f"{tmp}/q.fa", f"{tmp}/o.sto"
             pathlib.Path(fa_p).write_text(f">query\n{seq}\n")
             cmd = [
@@ -411,7 +411,7 @@ class Nhmmer(BinaryWrapper, MsaTool):
         Returns:
             MsaToolResult object.
         """
-        with tempfile.TemporaryDirectory() as tmp:
+        with temporary_directory("protenix-search-") as tmp:
             fa_p, sto_p = f"{tmp}/q.fa", f"{tmp}/o.sto"
             pathlib.Path(fa_p).write_text(f">query\n{seq}\n")
             cmd = [

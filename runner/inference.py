@@ -75,6 +75,8 @@ class InferenceRunner(object):
     """
 
     def __init__(self, configs: Any) -> None:
+        if "write_now" in configs:
+            raise ValueError("write_now has been removed; predictions are written after each seed.")
         self.configs = configs
         self.init_env()
         self.init_basics()
@@ -84,7 +86,7 @@ class InferenceRunner(object):
             need_atom_confidence=configs.need_atom_confidence,
             sorted_by_ranking_score=configs.sorted_by_ranking_score,
             compress_full_confidence=configs.get(
-                "compress_full_confidence", True
+                "compress_full_confidence", False
             ),
         )
 
@@ -194,7 +196,7 @@ class InferenceRunner(object):
         self,
         need_atom_confidence: bool = False,
         sorted_by_ranking_score: bool = True,
-        compress_full_confidence: bool = True,
+        compress_full_confidence: bool = False,
     ) -> None:
         """
         Initialize the data dumper for saving predictions.
@@ -542,6 +544,8 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         runner (InferenceRunner): The initialized runner instance.
         configs (Any): Inference configurations.
     """
+    if "write_now" in configs:
+        raise ValueError("write_now has been removed; predictions are written after each seed.")
     # Data loading
     logger.info(f"Loading data from {configs.input_json_path}")
     json_data = load_input_json(configs.input_json_path)
@@ -560,14 +564,6 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
         seeds = configs.seeds
 
     seeds = list(seeds)
-    if not configs.get("write_now", True) and not configs.get(
-        "_write_now_warning_emitted", False
-    ):
-        logger.warning(
-            "write_now=False was requested, but Protenix always writes each "
-            "prediction synchronously; synchronous writing remains enabled."
-        )
-        configs["_write_now_warning_emitted"] = True
 
     incomplete_seeds_by_job = None
     if configs.get("skip", False):
@@ -601,7 +597,7 @@ def infer_predict(runner: InferenceRunner, configs: Any) -> None:
                             "need_atom_confidence", False
                         ),
                         compress_full_confidence=configs.get(
-                            "compress_full_confidence", True
+                            "compress_full_confidence", False
                         ),
                     )
                 )

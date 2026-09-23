@@ -58,7 +58,7 @@ def seed_outputs_complete(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool,
+    compress_full_confidence: bool = False,
 ) -> bool:
     """Return whether every requested output for one model seed is complete.
 
@@ -121,7 +121,7 @@ def incomplete_model_seeds(
     num_samples: int,
     *,
     need_atom_confidence: bool,
-    compress_full_confidence: bool,
+    compress_full_confidence: bool = False,
 ) -> list[int]:
     """Return incomplete model seeds in their original order."""
     return [

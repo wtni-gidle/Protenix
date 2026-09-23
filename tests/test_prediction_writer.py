@@ -159,7 +159,7 @@ class PredictionWriterTest(unittest.TestCase):
         )
 
     @mock.patch("runner.dumper.save_structure_cif")
-    def test_omitted_compression_defaults_to_npz(self, save_cif):
+    def test_explicit_compression_writes_npz(self, save_cif):
         from zipfile import ZIP_DEFLATED, ZipFile
 
         save_cif.side_effect = self._fake_save_structure
@@ -167,7 +167,7 @@ class PredictionWriterTest(unittest.TestCase):
         before = copy.deepcopy(prediction)
 
         self._dump(
-            DataDumper(str(self.root), need_atom_confidence=True),
+            DataDumper(str(self.root), need_atom_confidence=True, compress_full_confidence=True),
             "npz_default",
             7,
             prediction,
@@ -579,7 +579,7 @@ class PredictionWriterCliWiringTest(unittest.TestCase):
             "true",
         ]
         for extra_args, expected in (
-            ([], True),
+            ([], False),
             (["--compress_full_confidence", "false"], False),
             (["--compress_full_confidence", "true"], True),
         ):

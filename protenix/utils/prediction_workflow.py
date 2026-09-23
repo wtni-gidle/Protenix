@@ -90,7 +90,6 @@ def run_prediction_workflow(
     if not input_jsons:
         raise ValueError(f"No inference job JSON found in: {input_path}")
     errors = {}
-    workflow_inputs = input_jsons
     workflow_inputs = []
     name_owners = {}
     for input_json in input_jsons:

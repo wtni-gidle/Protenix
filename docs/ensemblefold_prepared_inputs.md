@@ -97,9 +97,10 @@ wrapper 的模板准备与推理不支持非空 `prot_template_cache_dir`；若�
 显式空 MSA 保持 JSON 内空字符串，不强行生成空文件。关闭压缩时使用 `.a3m` / `.cif`。
 所有新模板都在主 JSON 的 `templates` 列表中；不生成附属模板 JSON 或公开 HHR 命中列表。
 JSON 中的引用形如 `msas/job__A_template_0.cif.zst`。
-外部已有文件会先被读取，再复制/转换进 bundle；整份任务目录可移动。
+外部 MSA／模板会先被读取，再复制/转换进 bundle；搬动完整任务目录可保留这些资源引用。
+`FILE_` 配体仍可能引用目录外文件，不在上述打包保证内；移动前应另行检查其路径。
 
-`--write_input_json auto` 默认在 data 模式写出、仅推理时不写；也可明确 true/false。
+`--write_input_json` 默认 true，data、仅推理和全部 skip 时都刷新当前输入快照；可明确 false。
 true 时即便原来的 `_data.json` 已存在也会更新；false 时既不生成也不覆盖公开 prepared。
 搜索、拆分输入、ESM embedding 等运行中间文件放独立临时目录：
 优先有效的 `SLURM_TMPDIR`，其次系统临时目录（尊重 `TMPDIR`）。
@@ -116,7 +117,12 @@ true 时即便原来的 `_data.json` 已存在也会更新；false 时既不生�
 保留 prepared JSON 的 paired 路径与 templates 列表，只修改
 `unpairedMsaPath` 指向 DeepMSA2 A3M，然后用 data=false 运行。
 这条路线读取新的 unpaired，不重新搜索、不替换 paired，也不因换 MSA 而重搜模板。
-若还要得到新的自包含目录，另外指定 write_input_json=true；否则原 JSON 不回写。
+默认 write_input_json=true 将当前条件保存成新的自包含快照；显式 false 才禁止公开写出。
+
+`--compress_fold_input` 默认 false，写外置 `.a3m` / `.cif`；true 写上文的 `.zst`。
+`--compress_full_confidence` 默认 false，详细置信度写 JSON，true 写压缩 NPZ；
+不会启用默认关闭的详细置信度输出。两种格式切换后清理同一样本的旧格式文件，
+输入读取不受写出压缩选项限制。预测仍在每个 seed 完成后立即写出。
 
 注意：原来约定的 skip 仍只看 seed/sample 必需文件存在且非空。
 输入改变不会自动使完成的 seed 失效；要真正重算，请换输出目录或关闭 skip。

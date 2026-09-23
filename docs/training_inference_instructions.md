@@ -122,7 +122,7 @@ protenix pred --input ./prepared/user_test/user_test_data.json --out_dir ./outpu
 - `--trimul_kernel` / `--triatt_kernel`: Choose specialized kernels (e.g., `cuequivariance`, `triattention`) for hardware acceleration.
 - `--enable_cache` / `--enable_fusion`: Enable memory/speed optimizations (recommended for GPU).
 
-When `--write_input_json true` (auto enables this for data mode), each job is written to a stable prepared JSON at
+When `--write_input_json true` (the default, including inference-only), each job is written to a stable prepared JSON at
 `<out_dir>/<sanitised_job>/<sanitised_job>_data.json`. The prepared JSON stores
 resource paths relative to itself and can be passed back with
 `--run_data_pipeline false`. Protein/RNA MSAs and single-chain template CIFs are

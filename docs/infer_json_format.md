@@ -399,11 +399,21 @@ job has one directory containing structures, summary confidence, and (when
 <name>/
 ├── models/seed-<seed>_sample-<sample>_model.cif
 ├── summary_confidences/seed-<seed>_sample-<sample>_summary_confidences.json
-└── full_data/seed-<seed>_sample-<sample>_full_data.npz
+└── full_data/seed-<seed>_sample-<sample>_full_data.json
 ```
 
-Full confidence defaults to compressed NPZ. Set
-`--compress_full_confidence false` to write the same payload as compact JSON.
+Full confidence defaults to compact JSON. Set
+`--compress_full_confidence true` to write the same payload as compressed NPZ.
+This does not enable `need_atom_confidence`, which remains opt-in. Switching formats
+removes the old counterpart after successful publication and preserves array shapes.
+
+`--write_input_json` defaults to true, including inference-only and fully skipped
+runs: it refreshes the current input and external resources without enabling search.
+Use false to keep public inputs unchanged. `--compress_fold_input` defaults to false
+and writes external plain A3M/mmCIF resources; true writes zstd resources. Both
+formats remain readable independently of the publication setting. The shell wrapper
+uses `-w`, `-z` and `-f` for these three settings respectively. Predictions are written
+after each seed completes.
 
 With `--skip true`, a seed is skipped only when every requested sample has its
 model CIF and summary confidence JSON as non-empty regular files, plus full

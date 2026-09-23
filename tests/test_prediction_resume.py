@@ -404,14 +404,13 @@ class PredictionResumeBatchTest(unittest.TestCase):
                 write_input_json=False,
                 need_atom_confidence=False,
                 skip=True,
-                write_now=False,
             )
 
         self.assertEqual(ready, [str(input_json.resolve())])
         self.assertEqual(observed, [("partial", [22])])
         self.assertEqual(create_runner.call_count, 1)
         self.assertEqual(create_runner.call_args.kwargs["n_sample"], 2)
-        self.assertIs(create_runner.call_args.kwargs["write_now"], False)
+        self.assertNotIn("write_now", create_runner.call_args.kwargs)
         self.assertFalse((out_dir / ".protenix_tmp").exists())
         self.assertEqual(json.loads(input_json.read_text()), jobs)
 
@@ -488,7 +487,6 @@ class PredictionResumeBatchTest(unittest.TestCase):
                 run_inference=False,
                 write_input_json=True,
                 skip=True,
-                write_now=False,
             )
 
         self.assertEqual(ready, sentinel_ready)
@@ -497,23 +495,21 @@ class PredictionResumeBatchTest(unittest.TestCase):
         help_result = CliRunner().invoke(batch_inference.predict, ["--help"])
         self.assertEqual(help_result.exit_code, 0, help_result.output)
         self.assertIn("--skip", help_result.output)
-        self.assertIn("--write_now", help_result.output)
+        self.assertNotIn("--write_now", help_result.output)
         self.assertIn("--max_template_date", help_result.output)
 
         for extra_args, expected in (
-            ([], (False, True, True, "2021-09-30")),
+            ([], (False, False, "2021-09-30")),
             (
                 [
                     "--skip",
                     "true",
-                    "--write_now",
-                    "false",
                     "--compress_fold_input",
                     "false",
                     "--max_template_date",
                     "2024-01-31",
                 ],
-                (True, False, False, "2024-01-31"),
+                (True, False, "2024-01-31"),
             ),
         ):
             with self.subTest(extra_args=extra_args):
@@ -546,7 +542,6 @@ class PredictionResumeBatchTest(unittest.TestCase):
                 self.assertEqual(
                     (
                         captured["skip"],
-                        captured["write_now"],
                         captured["compress_fold_input"],
                         captured["max_template_date"],
                     ),

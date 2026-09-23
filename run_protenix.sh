@@ -30,8 +30,9 @@ usage() {
     echo "-T <use_template>               Build/use template features. (default: false)"
     echo "-m <max_template_date>          Latest template release date, YYYY-MM-DD. (default: 2021-09-30)"
     echo "-R <use_rna_msa>                Build/use RNA MSA features. (default: false)"
-    echo "-w <write_input_json>           Write prepared JSON: auto/true/false. (default: auto)"
-    echo "-z <compress_fold_input>        Write prepared resources as .zst. (default: true)"
+    echo "-w <write_input_json>           Write prepared JSON: true/false. (default: true)"
+    echo "-z <compress_fold_input>        Write prepared resources as .zst. (default: false)"
+    echo "-f <compress_full_confidence>   Write detailed confidence as compressed NPZ. (default: false)"
     echo "-S <skip>                       Skip seeds whose expected outputs exist. (default: false)"
     echo "-h                              Show this help."
     echo ""
@@ -45,7 +46,7 @@ usage() {
 }
 
 # region: Parse command line arguments
-while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:S:h" opt; do
+while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:f:S:h" opt; do
     case "${opt}" in
     i) input_path=$OPTARG ;;
     o) output_dir=$OPTARG ;;
@@ -64,6 +65,7 @@ while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:S:h" opt; do
     R) use_rna_msa=$OPTARG ;;
     w) write_input_json=$OPTARG ;;
     z) compress_fold_input=$OPTARG ;;
+    f) compress_full_confidence=$OPTARG ;;
     S) skip=$OPTARG ;;
     h) usage ;;
     *) usage ;;
@@ -95,8 +97,9 @@ if [[ "$use_msa" == "" ]]; then use_msa="true"; fi
 if [[ "$use_template" == "" ]]; then use_template="false"; fi
 if [[ "$max_template_date" == "" ]]; then max_template_date="2021-09-30"; fi
 if [[ "$use_rna_msa" == "" ]]; then use_rna_msa="false"; fi
-if [[ "$write_input_json" == "" ]]; then write_input_json="auto"; fi
-if [[ "$compress_fold_input" == "" ]]; then compress_fold_input="true"; fi
+if [[ "$write_input_json" == "" ]]; then write_input_json="true"; fi
+if [[ "$compress_fold_input" == "" ]]; then compress_fold_input="false"; fi
+if [[ "$compress_full_confidence" == "" ]]; then compress_full_confidence="false"; fi
 if [[ "$skip" == "" ]]; then skip="false"; fi
 
 if [[ "$run_data_pipeline" == "false" && "$run_inference" == "false" ]]; then
@@ -104,14 +107,6 @@ if [[ "$run_data_pipeline" == "false" && "$run_inference" == "false" ]]; then
     exit 1
 fi
 
-# In inference-only mode, do not rewrite the prepared JSON unless explicitly asked.
-if [[ "$write_input_json" == "auto" ]]; then
-    if [[ "$run_data_pipeline" == "false" && "$run_inference" == "true" ]]; then
-        write_input_json="false"
-    else
-        write_input_json="true"
-    fi
-fi
 # endregion
 
 # region: Set paths and activate the environment for each server
@@ -148,6 +143,7 @@ command_args=(
     --run_inference "$run_inference"
     --write_input_json "$write_input_json"
     --compress_fold_input "$compress_fold_input"
+    --compress_full_confidence "$compress_full_confidence"
     --cycle "$cycle"
     --step "$step"
     --sample "$sample"

@@ -482,9 +482,8 @@ def get_default_runner(
     need_atom_confidence: bool = False,
     kalign_binary_path: Optional[str] = None,
     use_tfg_guidance: bool = False,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
     skip: bool = False,
-    write_now: bool = True,
     max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> Any:
     """
@@ -510,7 +509,6 @@ def get_default_runner(
         use_tfg_guidance (bool): Whether to use TFG guidance.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
         skip (bool): Skip seeds whose complete canonical outputs already exist.
-        write_now (bool): Compatibility flag for synchronous prediction writes.
         max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
@@ -569,7 +567,6 @@ def get_default_runner(
     configs.need_atom_confidence = need_atom_confidence
     configs.compress_full_confidence = compress_full_confidence
     configs.skip = skip
-    configs.write_now = write_now
     if kalign_binary_path is not None:
         # The path provided by the user is expected to exist by default
         configs.data.template.kalign_binary_path = kalign_binary_path
@@ -661,11 +658,10 @@ def inference_jsons(
     run_data_pipeline: bool = True,
     run_inference: bool = True,
     write_input_json: bool = True,
-    compress_fold_input: bool = True,
+    compress_fold_input: bool = False,
     model_seeds: Optional[list] = None,
-    compress_full_confidence: bool = True,
+    compress_full_confidence: bool = False,
     skip: bool = False,
-    write_now: bool = True,
     max_template_date: str = DEFAULT_MAX_TEMPLATE_DATE,
 ) -> List[str]:
     """
@@ -710,7 +706,6 @@ def inference_jsons(
             job's modelSeeds is used, falling back to 101.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
         skip (bool): Skip seeds whose complete canonical outputs already exist.
-        write_now (bool): Compatibility flag for synchronous prediction writes.
         max_template_date (str): Latest template release date in YYYY-MM-DD format.
 
     Returns:
@@ -731,11 +726,6 @@ def inference_jsons(
             logger.warning(
                 "use_seeds_in_json is deprecated: modelSeeds is now used "
                 "automatically when no model_seeds CLI/API override is supplied."
-            )
-        if not write_now:
-            logger.warning(
-                "write_now=False was requested, but Protenix always writes each "
-                "prediction synchronously; synchronous writing remains enabled."
             )
 
     def preprocess_one(input_json: str) -> str:
@@ -791,7 +781,6 @@ def inference_jsons(
             use_tfg_guidance=use_tfg_guidance,
             compress_full_confidence=compress_full_confidence,
             skip=skip,
-            write_now=write_now,
             max_template_date=max_template_date,
         )
 
@@ -851,8 +840,6 @@ def inference_jsons(
                 # This job was already checked before materializing the runner.
                 # Keep infer_predict's skip path for direct-runner callers only.
                 runner.configs["skip"] = False
-                if not write_now:
-                    runner.configs["_write_now_warning_emitted"] = True
                 logger.info("Using model seeds for %s: %s", job_name, active_seeds)
                 _run_infer_predict(runner, runner.configs)
                 successful_jobs += 1
@@ -973,10 +960,10 @@ def protenix_cli() -> None:
 @click.option(
     "--compress_fold_input",
     type=bool,
-    default=True,
+    default=False,
     help=(
         "Compress materialized MSA and template resources in the input bundle "
-        "(default: true)."
+        "(default: false)."
     ),
 )
 @click.option(
@@ -1084,7 +1071,7 @@ def protenix_cli() -> None:
 @click.option(
     "--compress_full_confidence",
     type=bool,
-    default=True,
+    default=False,
     help=(
         "Write Protenix full confidence as compressed NPZ instead of JSON. "
         "Only applies when need_atom_confidence is true."
@@ -1095,15 +1082,6 @@ def protenix_cli() -> None:
     type=bool,
     default=False,
     help="Skip model seeds whose complete canonical outputs already exist.",
-)
-@click.option(
-    "--write_now",
-    type=bool,
-    default=True,
-    help=(
-        "Write predictions synchronously. False is accepted for compatibility "
-        "but synchronous writing remains enabled."
-    ),
 )
 @click.option(
     "--kalign_binary_path",
@@ -1223,7 +1201,6 @@ def predict(
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
     skip: bool = False,
-    write_now: bool = True,
 ) -> None:
     """
     Run predictions with Protenix using various input formats.
@@ -1255,7 +1232,6 @@ def predict(
         need_atom_confidence (bool): Compute atom-level confidence scores.
         compress_full_confidence (bool): Write full confidence as compressed NPZ.
         skip (bool): Skip seeds whose complete canonical outputs already exist.
-        write_now (bool): Compatibility flag for synchronous prediction writes.
         kalign_binary_path (Optional[str]): Path to kalign binary.
         max_template_date (str): Latest template release date in YYYY-MM-DD format.
         use_tfg_guidance (bool): Use TFG guidance.
@@ -1391,7 +1367,6 @@ def predict(
         need_atom_confidence=need_atom_confidence,
         compress_full_confidence=compress_full_confidence,
         skip=skip,
-        write_now=write_now,
         kalign_binary_path=kalign_binary_path,
         max_template_date=max_template_date,
         use_tfg_guidance=use_tfg_guidance,

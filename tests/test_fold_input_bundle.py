@@ -44,18 +44,18 @@ class TestFoldInputBundle(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value, indent=2), encoding="utf-8")
 
-    def test_plain_bundle_materialises_msa_legacy_and_rna(self):
+    def test_plain_bundle_materialises_explicit_msa_and_rna(self):
         source = self.root / "source"
         shared_msa = source / "shared.a3m"
         rna_msa = source / "rna.a3m"
-        legacy_dir = source / "legacy"
+        msa_dir = source / "provided"
         ligand_file = source / "ligands/ligand.sdf"
         shared_msa.parent.mkdir(parents=True)
         shared_msa.write_text(">query\nAAA\n", encoding="utf-8")
         rna_msa.write_text(">query\nACG\n", encoding="utf-8")
-        legacy_dir.mkdir()
-        (legacy_dir / "pairing.a3m").write_text(">paired\nCCC\n", encoding="utf-8")
-        (legacy_dir / "non_pairing.a3m").write_text(
+        msa_dir.mkdir()
+        (msa_dir / "pairing.a3m").write_text(">paired\nCCC\n", encoding="utf-8")
+        (msa_dir / "non_pairing.a3m").write_text(
             ">unpaired\nCCC\n", encoding="utf-8"
         )
         ligand_file.parent.mkdir()
@@ -82,7 +82,8 @@ class TestFoldInputBundle(unittest.TestCase):
                                 "id": ["B"],
                                 "sequence": "CCC",
                                 "count": 1,
-                                "msa": {"precomputed_msa_dir": "legacy"},
+                                "pairedMsaPath": "provided/pairing.a3m",
+                                "unpairedMsaPath": "provided/non_pairing.a3m",
                             }
                         },
                         {

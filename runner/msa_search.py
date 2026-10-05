@@ -14,12 +14,13 @@
 import json
 import os
 import uuid
-from typing import Any, Sequence, Tuple
+from typing import Sequence, Tuple
 
 from protenix.utils.input_json import (
     load_input_json,
     make_input_json_paths_relative,
     sanitise_job_name,
+    validate_protein_msa_format,
 )
 from protenix.utils.logger import get_logger
 
@@ -52,79 +53,14 @@ def need_msa_search(json_data: dict) -> bool:
         bool: True if an MSA search is required, False otherwise.
     """
     need_msa = False
-    # the new format of msa filed is `pairedMsaPath` and `unpairedMsaPath`
-    # we need to check `pairedMsaPath` and `unpairedMsaPath`
     for sequence in json_data["sequences"]:
         if "proteinChain" in sequence:
             protein_chain = sequence["proteinChain"]
+            validate_protein_msa_format(protein_chain)
             paired = _has_msa(protein_chain, "paired")
             unpaired = _has_msa(protein_chain, "unpaired")
             need_msa = need_msa or not (paired or unpaired)
     return need_msa
-
-
-def convert_msa_to_new_format(
-    data_list: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], bool]:
-    """
-    Convert MSA format from old format to new format in a list of task dictionaries.
-
-    Args:
-        data_list (list[dict[str, Any]]): List of task dictionaries.
-
-    Returns:
-        tuple[list[dict[str, Any]], bool]:
-            - Updated list of task dictionaries.
-            - True if any format conversion occurred, False otherwise.
-    """
-    result = []
-    json_need_converted = False
-    for item in data_list:
-        # Process each dictionary item
-        processed_item, format_converted = convert_one_json_dict(item)
-        json_need_converted = json_need_converted or format_converted
-        result.append(processed_item)
-
-    return result, json_need_converted
-
-
-def convert_one_json_dict(obj: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-    """
-    Process a single dictionary to convert 'msa' field to 'pairedMsaPath' and 'unpairedMsaPath'.
-
-    Args:
-        obj (dict[str, Any]): A single task dictionary.
-
-    Returns:
-        tuple[dict[str, Any], bool]: Updated dictionary and format conversion flag.
-    """
-    format_converted = False
-    if "sequences" in obj and isinstance(obj["sequences"], list):
-        for sequence in obj["sequences"]:
-            if "proteinChain" in sequence and isinstance(
-                sequence["proteinChain"], dict
-            ):
-                protein_chain = sequence["proteinChain"]
-                if "msa" in protein_chain:
-                    msa_info = protein_chain.pop("msa")  # Remove old msa field
-                    logger.info(
-                        f"Detecting old MSA format: {msa_info}, converting to new format."
-                    )
-                    precomputed_msa_dir = msa_info.get("precomputed_msa_dir")
-                    format_converted = True
-                    if precomputed_msa_dir:
-                        # Build new paths
-                        pairing_path = f"{precomputed_msa_dir}/pairing.a3m"
-                        non_pairing_path = f"{precomputed_msa_dir}/non_pairing.a3m"
-
-                        # Add new fields if the files exist
-                        protein_chain = sequence["proteinChain"]
-                        if not _has_msa(protein_chain, "paired") and os.path.exists(pairing_path):
-                            protein_chain["pairedMsaPath"] = pairing_path
-                        if not _has_msa(protein_chain, "unpaired") and os.path.exists(non_pairing_path):
-                            protein_chain["unpairedMsaPath"] = non_pairing_path
-
-    return obj, format_converted
 
 
 def msa_search(
@@ -174,6 +110,7 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
     protein_seqs = []
     for sequence in infer_seq["sequences"]:
         if "proteinChain" in sequence.keys():
+            validate_protein_msa_format(sequence["proteinChain"])
             protein_seqs.append(sequence["proteinChain"]["sequence"])
     if len(protein_seqs) > 0:
         protein_seqs = sorted(protein_seqs)
@@ -190,17 +127,17 @@ def update_seq_msa(infer_seq: dict, msa_res_dir: str, mode: str) -> dict:
                 # another entity's search as permission to change this entity.
                 if paired or unpaired:
                     continue
-                precomputed_msa_dir = protein_msa_res[
+                msa_result_dir = protein_msa_res[
                     sequence["proteinChain"]["sequence"]
                 ]
-                if os.path.exists(f"{precomputed_msa_dir}/pairing.a3m"):
+                if os.path.exists(f"{msa_result_dir}/pairing.a3m"):
                     sequence["proteinChain"][
                         "pairedMsaPath"
-                    ] = f"{precomputed_msa_dir}/pairing.a3m"
-                if os.path.exists(f"{precomputed_msa_dir}/non_pairing.a3m"):
+                    ] = f"{msa_result_dir}/pairing.a3m"
+                if os.path.exists(f"{msa_result_dir}/non_pairing.a3m"):
                     sequence["proteinChain"][
                         "unpairedMsaPath"
-                    ] = f"{precomputed_msa_dir}/non_pairing.a3m"
+                    ] = f"{msa_result_dir}/non_pairing.a3m"
 
     return infer_seq
 
@@ -234,9 +171,6 @@ def update_infer_json(
         raise FileNotFoundError(f"Input file `{json_file}` does not exist.")
     json_data = load_input_json(json_file)
 
-    # Change the old format of msa filed to new format
-    json_data, json_need_converted = convert_msa_to_new_format(json_data)
-
     actual_updated = False
     for task_idx, infer_data in enumerate(json_data):
         if use_msa and need_msa_search(infer_data):
@@ -252,7 +186,7 @@ def update_infer_json(
                 os.path.join(out_dir, task_name, "msas"),
                 mode,
             )
-    if actual_updated or json_need_converted:
+    if actual_updated:
         if updated_json_path is None:
             updated_json = os.path.join(
                 os.path.dirname(os.path.abspath(json_file)),

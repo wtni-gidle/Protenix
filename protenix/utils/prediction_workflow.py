@@ -68,12 +68,12 @@ def run_prediction_workflow(
     input_jsons = discover_input_jsons(input_path)
     input_root = Path(input_path).expanduser().resolve()
     output_root = Path(output_dir).expanduser().resolve()
-    if (run_data_pipeline or write_input_json) and input_root.is_dir():
+    # Preparing source inputs must not rediscover earlier prepared outputs.
+    # Inference-only consumes those outputs, regardless of publication settings.
+    if run_data_pipeline and input_root.is_dir():
         filtered_jsons = []
         for input_json in input_jsons:
             candidate = Path(input_json).resolve()
-            if ".protenix_tmp" in candidate.parts:
-                continue
             if (
                 input_root in output_root.parents
                 and output_root in candidate.parents

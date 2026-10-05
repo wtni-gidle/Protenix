@@ -75,3 +75,32 @@ def test_uncached_factory_reads_current_cif(tmp_path, monkeypatch, cache):
 def test_uncached_inference_initialization_still_works(tmp_path, cache):
     dataset = InferenceDataset(dataset_config(tmp_path, cache))
     assert dataset.inputs[0]["name"] == "job"
+
+
+def test_prepared_runner_does_not_require_kalign_on_path(monkeypatch):
+    from types import SimpleNamespace
+    from runner import inference
+
+    # Keep config construction real; replace checkpoint/GPU/model boundaries.
+    monkeypatch.setattr(inference, "download_inference_cache", lambda configs: None)
+    monkeypatch.setattr(inference, "update_gpu_compatible_configs", lambda configs: configs)
+    monkeypatch.setattr(inference, "InferenceRunner", lambda configs: SimpleNamespace(configs=configs))
+    monkeypatch.setenv("PATH", "")
+    runner = batch_inference.get_default_runner(use_template=True)
+    assert runner.configs.use_template is True
+
+
+def test_explicit_missing_kalign_path_is_still_rejected(tmp_path):
+    with pytest.raises(AssertionError, match="kalign_binary_path"):
+        batch_inference.get_default_runner(
+            use_template=True, kalign_binary_path=str(tmp_path / "missing-kalign")
+        )
+
+
+def test_automatic_template_finalization_still_requires_kalign(tmp_path, monkeypatch):
+    configure(tmp_path, monkeypatch, None)
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setitem(batch_inference.data_configs["template"],
+                        "kalign_binary_path", str(tmp_path / "missing-kalign"))
+    with pytest.raises(FileNotFoundError, match="Kalign binary"):
+        batch_inference._create_template_finalizer_featurizer(None, "2021-09-30")

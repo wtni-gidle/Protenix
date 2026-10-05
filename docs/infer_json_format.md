@@ -82,10 +82,10 @@ There are 5 kinds of supported sequences:
 Missing/null `templates` allows automatic template search only when data mode and
 `use_template` are enabled. `templates: []` means no templates and no search.
 Inference-only never searches; explicit templates are read anew at feature generation.
-See [the full prepared-input contract](ensemblefold_prepared_inputs.md) and
+See [the full prepared-input contract](../../docs/usage/protenix.md) and
 [the current example](../examples/ensemblefold_inline_template.json).
 
-> ⚠️ **Note**: The previous `msa` field, which used a dictionary format (e.g., `"msa": {"precomputed_msa_dir": "...", "pairing_db": "uniref100"}`), is still compatible but is being deprecated. For an example of this old format, see `examples/example.json`. It is recommended to use the new fields `pairedMsaPath` and `unpairedMsaPath` instead.
+> **MSA input contract:** `proteinChain.msa` (including `precomputed_msa_dir`) is no longer accepted. Specify `pairedMsaPath` and/or `unpairedMsaPath`, or their inline equivalents, explicitly. Omit a channel if it is absent; use an empty inline string to explicitly provide no MSA. Saving prepared inputs does not fill missing channels from a directory. See `examples/example.json` for the current format.
 
 ##### dnaSequence
 ```json
@@ -378,6 +378,20 @@ The `pocket` constraint is defined as a dictionary with three keys: `"binder_cha
 * `max_distance` (float):
   The **maximum allowed distance** (in Ångströms) between the binder and the specified contact residues.
 
+
+### Directory input and inference-only reruns
+
+Directory inputs are scanned recursively. In inference-only mode, prepared
+`*_data.json` files remain eligible even when the input and output directories
+are the same. Ordinary task JSON filenames remain supported. The
+`write_input_json` setting only controls publication; it does not select tasks.
+
+Directory scans skip the wrapper's seed/sample confidence JSON files in
+`summary_confidences/` and `full_data/`, their staged temporary files, and
+`.protenix_tmp/` contents. Other malformed task JSONs still report errors;
+an explicitly selected file is always validated. In the data stage, the
+existing exclusion of nested prepared outputs prevents rediscovering earlier
+outputs, independently of `write_input_json`.
 
 ### Format of the model output
 

@@ -24,6 +24,15 @@ from typing import Any, Callable
 from protenix.utils.text_io import read_text
 
 
+def validate_protein_msa_format(protein: dict[str, Any]) -> None:
+    """Reject the retired directory-style MSA input at public entry points."""
+    if "msa" in protein:
+        raise ValueError(
+            "proteinChain.msa is no longer supported; use pairedMsaPath and "
+            "unpairedMsaPath (or pairedMsa and unpairedMsa) explicitly."
+        )
+
+
 def resolve_path_from_json(path: str, json_path: str | os.PathLike[str]) -> str:
     """Resolve a resource path relative to the JSON file that declares it."""
     if not path or os.path.isabs(path):
@@ -56,6 +65,7 @@ def _transform_input_json_paths(
 
             protein = sequence.get("proteinChain")
             if isinstance(protein, dict):
+                validate_protein_msa_format(protein)
                 if "templatesPath" in protein:
                     raise ValueError("templatesPath is no longer supported; use proteinChain.templates")
                 templates = protein.get("templates")
@@ -74,12 +84,6 @@ def _transform_input_json_paths(
                     value = protein.get(field)
                     if isinstance(value, str):
                         protein[field] = transform(value)
-
-                legacy_msa = protein.get("msa")
-                if isinstance(legacy_msa, dict):
-                    value = legacy_msa.get("precomputed_msa_dir")
-                    if isinstance(value, str):
-                        legacy_msa["precomputed_msa_dir"] = transform(value)
 
             rna = sequence.get("rnaSequence")
             if isinstance(rna, dict):
@@ -144,7 +148,7 @@ def load_inline_templates(templates: list[dict]) -> list[dict]:
 
 
 def discover_input_jsons(path: str | os.PathLike[str]) -> list[str]:
-    """Find job JSON files without treating nested template sidecars as jobs."""
+    """Find job JSONs, excluding generated results and template sidecars."""
     input_path = Path(path).expanduser()
     if input_path.is_file():
         return [str(input_path.resolve())] if input_path.suffix == ".json" else []
@@ -153,6 +157,23 @@ def discover_input_jsons(path: str | os.PathLike[str]) -> list[str]:
 
     job_jsons = []
     for candidate in sorted(input_path.rglob("*.json")):
+        if ".protenix_tmp" in candidate.relative_to(input_path).parts[:-1]:
+            continue
+        # Match the dumper's result layout, including interrupted staged writes.
+        # Directory names or *_data.json suffixes alone also match valid jobs.
+        result_kind = candidate.parent.name
+        if result_kind in {"summary_confidences", "full_data"} and (
+            (
+                candidate.name.startswith("seed-")
+                and candidate.name.endswith(f"_{result_kind}.json")
+            )
+            or (
+                candidate.name.startswith(".seed-")
+                and f"_{result_kind}." in candidate.name
+                and candidate.name.endswith(".tmp.json")
+            )
+        ):
+            continue
         try:
             with open(candidate, "r", encoding="utf-8") as f:
                 data = json.load(f)

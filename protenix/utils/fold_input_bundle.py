@@ -24,7 +24,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from protenix.utils.input_json import sanitise_job_name
+from protenix.utils.input_json import sanitise_job_name, validate_protein_msa_format
 from protenix.utils.text_io import read_text, write_zstd_text_atomic
 
 
@@ -129,37 +129,6 @@ class _BundleMaterialiser:
         chain.pop(inline_field, None)
         return True
 
-    def _materialise_legacy_msa(
-        self, chain: dict[str, Any], *, prefix: str
-    ) -> None:
-        legacy = chain.get("msa")
-        if not isinstance(legacy, dict):
-            return
-        msa_dir_value = legacy.get("precomputed_msa_dir")
-        if isinstance(msa_dir_value, str) and msa_dir_value:
-            msa_dir = Path(msa_dir_value)
-            if "pairedMsaPath" not in chain and chain.get("pairedMsa") is None:
-                pairing_path = msa_dir / "pairing.a3m"
-                if pairing_path.is_file():
-                    output_path = self._msa_output_path(prefix, "pairedmsa")
-                    self._write_resource_text(output_path, read_text(pairing_path))
-                    chain["pairedMsaPath"] = output_path.relative_to(
-                        self.job_dir
-                    ).as_posix()
-            if "unpairedMsaPath" not in chain and chain.get("unpairedMsa") is None:
-                non_pairing_path = msa_dir / "non_pairing.a3m"
-                if non_pairing_path.is_file():
-                    output_path = self._msa_output_path(prefix, "unpairedmsa")
-                    self._write_resource_text(output_path, read_text(non_pairing_path))
-                    chain["unpairedMsaPath"] = output_path.relative_to(
-                        self.job_dir
-                    ).as_posix()
-        # The inference loader only consumes pairing.a3m and non_pairing.a3m
-        # from this deprecated directory. Removing it prevents a hidden source
-        # directory dependency after those files have been converted.
-        chain.pop("msa", None)
-
-
     def _materialise_templates(
         self, chain: dict[str, Any], *, prefix: str
     ) -> None:
@@ -209,6 +178,7 @@ class _BundleMaterialiser:
 
             protein = sequence.get("proteinChain")
             if isinstance(protein, dict):
+                validate_protein_msa_format(protein)
                 self._materialise_msa(
                     protein,
                     prefix=prefix,
@@ -223,7 +193,6 @@ class _BundleMaterialiser:
                     inline_field="unpairedMsa",
                     path_field="unpairedMsaPath",
                 )
-                self._materialise_legacy_msa(protein, prefix=prefix)
                 self._materialise_templates(protein, prefix=prefix)
 
             rna = sequence.get("rnaSequence")

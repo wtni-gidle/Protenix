@@ -5,20 +5,16 @@
                 "proteinChain": {
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/1/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/1/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/1/non_pairing.a3m"
                 }
             },
             {
                 "proteinChain": {
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/2/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/2/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/2/non_pairing.a3m"
                 }
             }
         ],
@@ -31,20 +27,16 @@
                 "proteinChain": {
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/1/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/1/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/1/non_pairing.a3m"
                 }
             },
             {
                 "proteinChain": {
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/2/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/2/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/2/non_pairing.a3m"
                 }
             }
         ],
@@ -73,20 +65,16 @@
                 "proteinChain": {
                     "sequence": "YMLDLQPETTDLYCGGGGSGGGGSGGGGSIQRTPKIQVYSRHPAENGKSNFLNCYVSGFHPSDIEVDLLKNGERIEKVEHSDLSFSKDWSFYLLYYTEFTPTEKDEYACRVNHVTLSQPKIVKWDRDMGGGGSGGGGSGGGGSGGGGSGSHSMRYFFTSVSRPGRGEPRFIAVGYVDDTQFVRFDSDAASQRMEPRAPWIEQEGPEYWDGETRKVKAHSQTHRVDLGTLRGCYNQSEAGSHTVQRMYGCDVGSDWRFLRGYHQYAYDGKDYIALKEDLRSWTAADMCAQTTKHKWEAAHVAEQLRAYLEGTCVEWLRRYLENGKETLQRTDAPKTHMTHHAVSDHEATLRCWALSFYPAEITLTWQRDGEDQTQDTELVETRPAGDGTFQKWAAVVVPSGQEQRYTCHVQHEGLPKPLTLRWEHHHHHH",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/1/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/1/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/1/non_pairing.a3m"
                 }
             },
             {
                 "proteinChain": {
                     "sequence": "EVKLVESGGGLVQPGGSLRLSCAASGSIFSINTMGWYRQTPGKQRDLVADISSGGSTKYGDSVKGRFTISRDNTKNTVYLQMNSLKPEDTAVYYCYGLSYSNDDYWGQGTQVTVSS",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "7st3/msa/2/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "7st3/msa/2/pairing.a3m",
+"unpairedMsaPath": "7st3/msa/2/non_pairing.a3m"
                 }
             }
         ],
@@ -112,10 +100,8 @@
                 "proteinChain": {
                     "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "5sak/1/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "5sak/1/pairing.a3m",
+"unpairedMsaPath": "5sak/1/non_pairing.a3m"
                 }
             },
             {
@@ -134,10 +120,8 @@
                 "proteinChain": {
                     "sequence": "MSSPLKNALVTAMLAGGALSSPTKQHVGIPVNASPEVGPGKYSFKQVRNPNYKFNGPLSVKKTYLKYGVPIPAWLEDAVQNSTSGLAERSTGSATTTPIDSLDDAYITPVQIGTPAQTLNLDFDTGSSDLWVFSSETTASEVDGQTIYTPSKSTTAKLLSGATWSISYGDGSSSSGDVYTDTVSVGGLTVTGQAVESAKKVSSSFTEDSTIDGLLGLAFSTLNTVSPTQQKTFFDNAKASLDSPVFTADLGYHAPGTYNFGFIDTTAYTGSITYTAVSTKQGFWEWTSTGYAVGSGTFKSTSIDGIADTGTTLLYLPATVVSAYWAQVSGAKSSSSVGGYVFPCSATLPSFTFGVGSARIVIPGDYIDFGPISTGSSSCFGGIQSSAGIGINIFGDVALKAAFVVFNGATTPTLGFASK",
                     "count": 1,
-                    "msa": {
-                        "precomputed_msa_dir": "5sak/1/",
-                        "pairing_db": "uniref100"
-                    }
+                    "pairedMsaPath": "5sak/1/pairing.a3m",
+"unpairedMsaPath": "5sak/1/non_pairing.a3m"
                 }
             },
             {

@@ -36,6 +36,7 @@ usage() {
     echo "-S <skip>                       Skip seeds whose expected outputs exist. (default: false)"
     echo "-h                              Show this help."
     echo ""
+    echo "Boolean options accept case-insensitive true/false, t/f, yes/no, y/n, on/off or 1/0."
     echo "Examples:"
     echo "  # Run only the data pipeline."
     echo "  $0 -i seq.json -o result -D true -P false"
@@ -43,6 +44,18 @@ usage() {
     echo "  # Read seq_data.json and predict several seeds."
     echo "  $0 -i result/seq/seq_data.json -o result -D false -P true -r 101,102,103 -S true"
     exit 1
+}
+
+normalize_boolean() {
+    local value="$2"
+    # Normalize before shell decisions and Python argument forwarding.
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$value" in
+        [Tt][Rr][Uu][Ee]|[Tt]|1|[Yy][Ee][Ss]|[Yy]|[Oo][Nn]) printf 'true\n' ;;
+        [Ff][Aa][Ll][Ss][Ee]|[Ff]|0|[Nn][Oo]|[Nn]|[Oo][Ff][Ff]) printf 'false\n' ;;
+        *) echo "Error: $1 must be true or false (got '$2')." >&2; return 2 ;;
+    esac
 }
 
 # region: Parse command line arguments
@@ -86,21 +99,31 @@ fi
 
 # region: Set default values
 if [[ "$gpu_device" == "" ]]; then gpu_device="0"; fi
-if [[ "$run_data_pipeline" == "" ]]; then run_data_pipeline="true"; fi
-if [[ "$run_inference" == "" ]]; then run_inference="true"; fi
+if [[ "${run_data_pipeline+x}" != x ]]; then run_data_pipeline="true"; fi
+if [[ "${run_inference+x}" != x ]]; then run_inference="true"; fi
 if [[ "$cycle" == "" ]]; then cycle="10"; fi
 if [[ "$step" == "" ]]; then step="200"; fi
 if [[ "$sample" == "" ]]; then sample="5"; fi
 if [[ "$dtype" == "" ]]; then dtype="bf16"; fi
 if [[ "$model_name" == "" ]]; then model_name="protenix_base_default_v1.0.0"; fi
-if [[ "$use_msa" == "" ]]; then use_msa="true"; fi
-if [[ "$use_template" == "" ]]; then use_template="false"; fi
+if [[ "${use_msa+x}" != x ]]; then use_msa="true"; fi
+if [[ "${use_template+x}" != x ]]; then use_template="false"; fi
 if [[ "$max_template_date" == "" ]]; then max_template_date="2021-09-30"; fi
-if [[ "$use_rna_msa" == "" ]]; then use_rna_msa="false"; fi
-if [[ "$write_input_json" == "" ]]; then write_input_json="true"; fi
-if [[ "$compress_fold_input" == "" ]]; then compress_fold_input="false"; fi
-if [[ "$compress_full_confidence" == "" ]]; then compress_full_confidence="false"; fi
-if [[ "$skip" == "" ]]; then skip="false"; fi
+if [[ "${use_rna_msa+x}" != x ]]; then use_rna_msa="false"; fi
+if [[ "${write_input_json+x}" != x ]]; then write_input_json="true"; fi
+if [[ "${compress_fold_input+x}" != x ]]; then compress_fold_input="false"; fi
+if [[ "${compress_full_confidence+x}" != x ]]; then compress_full_confidence="false"; fi
+if [[ "${skip+x}" != x ]]; then skip="false"; fi
+
+run_data_pipeline=$(normalize_boolean -D "$run_data_pipeline")
+run_inference=$(normalize_boolean -P "$run_inference")
+use_msa=$(normalize_boolean -M "$use_msa")
+use_template=$(normalize_boolean -T "$use_template")
+use_rna_msa=$(normalize_boolean -R "$use_rna_msa")
+write_input_json=$(normalize_boolean -w "$write_input_json")
+compress_fold_input=$(normalize_boolean -z "$compress_fold_input")
+compress_full_confidence=$(normalize_boolean -f "$compress_full_confidence")
+skip=$(normalize_boolean -S "$skip")
 
 if [[ "$run_data_pipeline" == "false" && "$run_inference" == "false" ]]; then
     echo "Error: run_data_pipeline and run_inference cannot both be false."

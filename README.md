@@ -1,7 +1,7 @@
+> EnsembleFold wrapper 的当前用法、输入输出及验证记录统一维护在[方法手册](../docs/usage/protenix.md)和[共同说明](../docs/usage/README.md)。10-05 本地修复和验证范围见[当前状态](../docs/usage/protenix.md#current-status)。旧 wrapper 专页已合并归档；下文原生项目说明保留其自身适用范围。
+
 # Protenix: Protein + X
 
-EnsembleFold wrapper users: see [prepared MSA/template inputs](docs/ensemblefold_prepared_inputs.md).
-The current wrapper uses inline `proteinChain.templates`; legacy `templatesPath` inputs are rejected.
 
 <div align="center" style="margin: 20px 0;">
   <span style="margin: 0 10px;">⚡ <a href="https://protenix-server.com">Protenix Web Server</a></span>

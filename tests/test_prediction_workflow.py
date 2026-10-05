@@ -525,24 +525,23 @@ class TestPredictionWorkflow(unittest.TestCase):
         self.assertRaises(ValueError, sanitise_job_name, ".")
         self.assertRaises(ValueError, sanitise_job_name, "..")
 
-    def test_real_msa_conversion_uses_private_temporary_json(self):
+    def test_real_msa_search_uses_private_temporary_json(self):
         input_dir = self.tmp_path / "inputs"
-        msa_dir = input_dir / "legacy_msa"
+        msa_dir = input_dir / "server_msa"
         msa_dir.mkdir(parents=True)
         (msa_dir / "pairing.a3m").write_text(">q\nAAA\n", encoding="utf-8")
         (msa_dir / "non_pairing.a3m").write_text(">q\nAAA\n", encoding="utf-8")
-        input_path = input_dir / "legacy.json"
+        input_path = input_dir / "search.json"
         self._write_json(
             input_path,
             [
                 {
-                    "name": "legacy job",
+                    "name": "search job",
                     "sequences": [
                         {
                             "proteinChain": {
                                 "sequence": "AAA",
                                 "count": 1,
-                                "msa": {"precomputed_msa_dir": "legacy_msa"},
                             }
                         }
                     ],
@@ -559,20 +558,21 @@ class TestPredictionWorkflow(unittest.TestCase):
                 updated_json_path=str(temporary_json),
             )[0]
 
-        ready, errors = run_prediction_workflow(
-            input_path,
-            output_dir,
-            run_data_pipeline=True,
-            run_inference=False,
-            preprocess_input=preprocess,
-            create_runner=lambda: self.fail("Runner must not be created."),
-            infer_input=lambda _runner, _path: self.fail("Inference must not run."),
-        )
+        with mock.patch("runner.msa_search.msa_search", return_value=[str(msa_dir)]):
+            ready, errors = run_prediction_workflow(
+                input_path,
+                output_dir,
+                run_data_pipeline=True,
+                run_inference=False,
+                preprocess_input=preprocess,
+                create_runner=lambda: self.fail("Runner must not be created."),
+                infer_input=lambda _runner, _path: self.fail("Inference must not run."),
+            )
 
         self.assertEqual(errors, {})
         self.assertEqual(
             ready,
-            [str(output_dir / "legacy_job/legacy_job_data.json")],
+            [str(output_dir / "search_job/search_job_data.json")],
         )
         self.assertFalse(temporary_json.exists())
         self.assertFalse((output_dir / ".protenix_tmp").exists())

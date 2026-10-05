@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import shutil
-import subprocess
 import tempfile
 import time
 import uuid
@@ -573,34 +572,8 @@ def get_default_runner(
         assert os.path.exists(
             kalign_binary_path
         ), f"kalign_binary_path {kalign_binary_path} does not exist"
-    else:
-        # If no path is provided and templates are used, try to find kalign in the system PATH
-        if use_template:
-            found_path = None
-            try:
-                result = subprocess.run(
-                    ["which", "kalign"], capture_output=True, text=True
-                )
-                if result.returncode == 0 and result.stdout.strip():
-                    kalign_in_path = result.stdout.strip()
-                    if os.path.exists(kalign_in_path) and os.access(
-                        kalign_in_path, os.X_OK
-                    ):
-                        found_path = kalign_in_path
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                pass
-
-            if found_path is not None:
-                configs.data.template.kalign_binary_path = found_path
-            else:
-                raise RuntimeError(
-                    "Kalign binary not found in system PATH. "
-                    "To install kalign, you can use one of the following methods:\n"
-                    "1. Using conda: conda install -c bioconda kalign\n"
-                    "2. Using apt (Ubuntu/Debian): apt-get install kalign\n"
-                    "3. Download from: https://github.com/TimoLassmann/kalign\n"
-                    "After installation, make sure the binary is accessible in PATH or provide kalign_binary_path."
-                )
+    # Automatic template alignment checks Kalign in the data-stage finalizer.
+    # Prepared inference consumes explicit residue mappings and needs no aligner.
     configs.sample_diffusion.guidance.enable = use_tfg_guidance
 
     configs = update_gpu_compatible_configs(configs)
@@ -1087,7 +1060,7 @@ def protenix_cli() -> None:
     "--kalign_binary_path",
     type=str,
     default=None,
-    help="Path to kalign (searches in PATH if not provided).",
+    help="Kalign for automatic template preparation (searches PATH when needed).",
 )
 @click.option(
     "--max_template_date",

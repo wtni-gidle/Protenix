@@ -98,17 +98,14 @@ def test_explicit_inline_empty_msa_does_not_search():
         "sequence": "AAA", "pairedMsa": "", "unpairedMsa": ""}}]})
 
 
-def test_empty_msa_wins_over_legacy_directory_when_writing(tmp_path):
-    (tmp_path / "pairing.a3m").write_text(">q\nAAA\n")
-    (tmp_path / "non_pairing.a3m").write_text(">q\nAAA\n")
-    source = tmp_path / "input.json"
+def test_empty_channels_do_not_allow_legacy_directory_when_writing(tmp_path):
+    source = tmp_path / "job.json"
     source.write_text(json.dumps([{"name": "job", "sequences": [{"proteinChain": {
         "sequence": "AAA", "pairedMsa": "", "unpairedMsa": "",
         "msa": {"precomputed_msa_dir": str(tmp_path)}}}]}]))
-    path = write_prepared_input_jsons(source, tmp_path / "out")[0]
-    protein = load_input_json(path)[0]["sequences"][0]["proteinChain"]
-    assert protein["pairedMsa"] == protein["unpairedMsa"] == ""
-    assert "pairedMsaPath" not in protein and "unpairedMsaPath" not in protein
+    with pytest.raises(ValueError, match="proteinChain.msa"):
+        write_prepared_input_jsons(source, tmp_path / "out")
+    assert not (tmp_path / "out").exists()
 
 
 def test_joint_search_keeps_supplied_msa_and_only_fills_missing(tmp_path, monkeypatch):

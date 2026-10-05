@@ -34,6 +34,7 @@ from protenix.data.msa.msa_utils import (
     RawMsa,
 )
 from protenix.utils.file_io import load_json_cached
+from protenix.utils.input_json import validate_protein_msa_format
 from protenix.utils.logger import get_logger
 from protenix.utils.text_io import read_text
 
@@ -604,6 +605,7 @@ class InferenceMSAFeaturizer:
             seq, count, ctype, u_a3m, p_a3m = "", 0, LIGAND_CHAIN_TYPES, None, None
             if "proteinChain" in info:
                 c = info["proteinChain"]
+                validate_protein_msa_format(c)
                 seq, count, ctype, u_a3m, p_a3m = (
                     c["sequence"],
                     c["count"],
@@ -615,19 +617,6 @@ class InferenceMSAFeaturizer:
                     u_a3m = read_text(c["unpairedMsaPath"])
                 if p_a3m is None and c.get("pairedMsaPath"):
                     p_a3m = read_text(c["pairedMsaPath"])
-                if u_a3m is None and (p_a3m is None):
-                    if c.get("msa"):
-                        msa_dir = c["msa"].get("precomputed_msa_dir")
-                        if msa_dir and opexists(msa_dir):
-                            logger.warning(
-                                "Use the old msa json format, change to pairedMsaPath/unpairedMsaPath field for future use."
-                            )
-                            if opexists(opjoin(msa_dir, "pairing.a3m")):
-                                p_a3m = read_text(opjoin(msa_dir, "pairing.a3m"))
-                            if opexists(opjoin(msa_dir, "non_pairing.a3m")):
-                                u_a3m = read_text(
-                                    opjoin(msa_dir, "non_pairing.a3m")
-                                )
 
             elif "rnaSequence" in info:
                 c = info["rnaSequence"]

@@ -57,7 +57,6 @@ class TestJsonPathResolution(unittest.TestCase):
                             "pairedMsaPath": "msas/paired.a3m",
                             "unpairedMsaPath": "",
                             "templates": [{"mmcifPath": "msas/template.cif", "queryIndices": [0], "templateIndices": [0]}],
-                            "msa": {"precomputed_msa_dir": "legacy/msa"},
                         }
                     },
                     {
@@ -99,10 +98,6 @@ class TestJsonPathResolution(unittest.TestCase):
         self.assertEqual(first_protein["unpairedMsaPath"], "")
         self.assertEqual(
             first_protein["templates"][0]["mmcifPath"], str(bundle_dir / "msas/template.cif")
-        )
-        self.assertEqual(
-            first_protein["msa"]["precomputed_msa_dir"],
-            str(bundle_dir / "legacy/msa"),
         )
         self.assertEqual(second_protein["pairedMsaPath"], str(absolute_msa))
         self.assertEqual(
@@ -203,7 +198,7 @@ class TestJsonPathResolution(unittest.TestCase):
             discovered_names, {"empty.json", "invalid.json", "mixed.json"}
         )
 
-    def test_legacy_msa_conversion_uses_json_relative_directory(self):
+    def test_explicit_msa_paths_use_json_relative_directory(self):
         try:
             from runner.msa_search import update_infer_json
         except ModuleNotFoundError as exc:
@@ -219,13 +214,14 @@ class TestJsonPathResolution(unittest.TestCase):
             input_path,
             [
                 {
-                    "name": "legacy-test",
+                    "name": "explicit-test",
                     "sequences": [
                         {
                             "proteinChain": {
                                 "sequence": "AAA",
                                 "count": 1,
-                                "msa": {"precomputed_msa_dir": "msas/A"},
+                                "pairedMsaPath": "msas/A/pairing.a3m",
+                                "unpairedMsaPath": "msas/A/non_pairing.a3m",
                             }
                         }
                     ],

@@ -5,10 +5,8 @@
                 "sequence": "MGSSHHHHHHSSGLVPRGSHMSGKIQHKAVVPAPSRIPLTLSEIEDLRRKGFNQTEIAELYGVTRQAVSWHKKTYGGRLTTRQIVQQNWPWDTRKPHDKSKAFQRLRDHGEYMRVGSFRTMSEDKKKRLLSWWKMLRDNDLVLEFDPSIEPYEGMAGGGFRYVPRDISDDDLLIRVNEHTQLTAEGELLWSWPDDIEELLSEP",
                 "count": 1,
                 "id": ["A"],
-                "msa": {
-                    "precomputed_msa_dir": "7r6r/msa/1",
-                    "pairing_db": "uniref100"
-                }
+                "pairedMsaPath": "7r6r/msa/1/pairing.a3m",
+"unpairedMsaPath": "7r6r/msa/1/non_pairing.a3m"
             }
         },
         {
@@ -34,20 +32,16 @@
             "proteinChain": {
                 "sequence": "MASWSHPQFEKGGTHVAETSAPTRSEPDTRVLTLPGTASAPEFRLIDIDGLLNNRATTDVRDLGSGRLNAWGNSFPAAELPAPGSLITVAGIPFTWANAHARGDNIRCEGQVVDIPPGQYDWIYLLAASERRSEDTIWAHYDDGHADPLRVGISDFLDGTPAFGELSAFRTSRMHYPHHVQEGLPTTMWLTRVGMPRHGVARSLRLPRSVAMHVFALTLRTAAAVRLAEGATT",
                 "count": 2,
-                "msa": {
-                    "precomputed_msa_dir": "7wux/msa/1",
-                    "pairing_db": "uniref100"
-                }
+                "pairedMsaPath": "7wux/msa/1/pairing.a3m",
+"unpairedMsaPath": "7wux/msa/1/non_pairing.a3m"
             }
         },
         {
             "proteinChain": {
                 "sequence": "MGSSHHHHHHSQDPNSTTTAPPVELWTRDLGSCLHGTLATALIRDGHDPVTVLGAPWEFRRRPGAWSSEEYFFFAEPDSLAGRLALYHPFESTWHRSDGDGVDDLREALAAGVLPIAAVDNFHLPFRPAFHDVHAAHLLVVYRITETEVYVSDAQPPAFQGAIPLADFLASWGSLNPPDDADVFFSASPSGRRWLRTRMTGPVPEPDRHWVGRVIRENVARYRQEPPADTQTGLPGLRRYLDELCALTPGTNAASEALSELYVISWNIQAQSGLHAEFLRAHSVKWRIPELAEAAAGVDAVAHGWTGVRMTGAHSRVWQRHRPAELRGHATALVRRLEAALDLLELAADAVS",
                 "count": 2,
-                "msa": {
-                    "precomputed_msa_dir": "7wux/msa/2",
-                    "pairing_db": "uniref100"
-                }
+                "pairedMsaPath": "7wux/msa/2/pairing.a3m",
+"unpairedMsaPath": "7wux/msa/2/non_pairing.a3m"
             }
         },
         {
@@ -78,10 +72,8 @@
                 "sequence": "MAEVIRSSAFWRSFPIFEEFDSETLCELSGIASYRKWSAGTVIFQRGDQGDYMIVVVSGRIKLSLFTPQGRELMLRQHEAGALFGEMALLDGQPRSADATAVTAAEGYVIGKKDFLALITQRPKTAEAVIRFLCAQLRDTTDRLETIALYDLNARVARFFLATLRQIHGSEMPQSANLRLTLSQTDIASILGASRPKVNRAILSLEESGAIKRADGIICCNVGRLLSIADPEEDLEHHHHHHHH",
                 "count": 2,
                 "id": ["A", "B"],
-                "msa": {
-                    "precomputed_msa_dir": "7pzb/msa/1",
-                    "pairing_db": "uniref100"
-                }
+                "pairedMsaPath": "7pzb/msa/1/pairing.a3m",
+"unpairedMsaPath": "7pzb/msa/1/non_pairing.a3m"
             }
         },
         {

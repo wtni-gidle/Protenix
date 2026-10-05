@@ -27,7 +27,7 @@ Check the detailed guide: [<u> Docker Installation</u>](./docker_installation.md
 
 ### External Dependencies
 For features such as **Template search** and **RNA MSA search**, additional system tools are required:
-- **kalign**: Used for sequence alignment.
+- **kalign**: Used during automatic template preparation. Inference from prepared templates with explicit residue mappings does not require Kalign; an explicitly supplied `--kalign_binary_path` is still validated.
 - **hmmer**: Used for sequence profile searches.
 
 **Note**:
@@ -109,6 +109,12 @@ protenix pred --input ./prepared/user_test/user_test_data.json --out_dir ./outpu
   --run_data_pipeline false --run_inference true
 ```
 
+For the EnsembleFold shell wrapper, directory reruns, publication control and
+case-insensitive boolean options are documented in the
+[current method guide](../../docs/usage/protenix.md#current-status).
+`--write_input_json` controls saving prepared inputs; it does not select jobs or
+disable prediction outputs.
+
 #### Key Inference Flags
 - `--run_data_pipeline`: Run MSA/template/RNA preprocessing (default: `true`).
 - `--run_inference`: Run model inference (default: `true`). At least one workflow stage must be enabled.
@@ -128,7 +134,7 @@ resource paths relative to itself and can be passed back with
 `--run_data_pipeline false`. Protein/RNA MSAs and single-chain template CIFs are
 materialized under the job's `msas/` directory, including existing external resources.
 Template entries live in the main JSON, not a sidecar. See the
-[prepared input contract](ensemblefold_prepared_inputs.md) for null/empty states,
+[prepared input contract](../../docs/usage/protenix.md) for null/empty states,
 mapping indices, compression, write control and private scratch.
 
 ### Inference via Bash Script

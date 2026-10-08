@@ -16,6 +16,7 @@
 
 import json
 import os
+import re
 import string
 from copy import deepcopy
 from pathlib import Path
@@ -248,7 +249,14 @@ def write_prepared_input_jsons(
             prepared_path = job_dir / f"{safe_name}_data.json"
             materialised = materialise_fold_input_job(job, stage, safe_name, compress_fold_input=compress_fold_input)
             prepared = make_input_json_paths_relative([materialised], prepared_path)
-            (stage / prepared_path.name).write_text(json.dumps(prepared, indent=4), encoding="utf-8")
+            json_text = json.dumps(prepared, indent=4)
+            # Match AF3: keep template indices and model seeds on single lines.
+            json_text = re.sub(
+                r'("(?:queryIndices|templateIndices|modelSeeds)": \[)([\s\n\d,]+)(\],?)',
+                lambda match: match[1] + re.sub(r'\n\s+', ' ', match[2].strip()) + match[3],
+                json_text,
+            )
+            (stage / prepared_path.name).write_text(json_text, encoding="utf-8")
             prepared_jobs.append((stage, job_dir, prepared_path))
         for stage, job_dir, prepared_path in prepared_jobs:
             publish_bundle(stage, job_dir, prepared_path.name)

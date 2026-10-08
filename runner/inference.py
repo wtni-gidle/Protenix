@@ -14,6 +14,7 @@
 import json
 import logging
 import os
+import tempfile
 import time
 import traceback
 import urllib.request
@@ -140,9 +141,11 @@ class InferenceRunner(object):
         Initialize basic directory structures for dumping results and errors.
         """
         self.dump_dir = self.configs.dump_dir
-        self.error_dir = opjoin(self.dump_dir, "ERR")
         os.makedirs(self.dump_dir, exist_ok=True)
-        os.makedirs(self.error_dir, exist_ok=True)
+        error_root = opjoin(self.dump_dir, "ERR")
+        os.makedirs(error_root, exist_ok=True)
+        # Each runner owns its error directory, including empty-directory cleanup.
+        self.error_dir = tempfile.mkdtemp(prefix="run-", dir=error_root)
 
     def init_model(self) -> None:
         """

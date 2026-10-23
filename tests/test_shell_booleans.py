@@ -87,9 +87,15 @@ class TestShellBooleans(unittest.TestCase):
         self.assertIn('cannot both be false', result.stdout + result.stderr)
         self.assertIsNone(recorded)
 
-    def test_defaults_still_enable_inference_on_gpu_zero(self):
+    def test_defaults_preserve_existing_gpu_selection(self):
+        result, recorded = self.invoke()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(recorded['cuda'], '2')
+        self.assertEqual(recorded['args'][0], 'pred')
+        self.assertIn(str(self.source), recorded['args'])
+
+    def test_unset_gpu_environment_still_defaults_to_zero(self):
+        self.env.pop('CUDA_VISIBLE_DEVICES')
         result, recorded = self.invoke()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(recorded['cuda'], '0')
-        self.assertEqual(recorded['args'][0], 'pred')
-        self.assertIn(str(self.source), recorded['args'])

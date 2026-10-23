@@ -48,6 +48,7 @@ from protenix.utils.prepared_io import private_runtime, runtime_directory
 from protenix.version import __version__
 from rdkit import Chem
 
+from runner.inference_config import load_config
 from runner.msa_search import msa_search, update_infer_json
 from runner.rna_msa_search import update_rna_msa_info
 from runner.template_search import update_template_info
@@ -1134,6 +1135,12 @@ def protenix_cli() -> None:
     default=None,
     help="Number of CPUs for nhmmer.",
 )
+@click.option(
+    "--config",
+    type=click.Path(dir_okay=False),
+    default=None,
+    help="Flat YAML settings; explicit values override CLI options.",
+)
 def predict(
     input: str,
     out_dir: str,
@@ -1174,6 +1181,7 @@ def predict(
     rna_central_database_path: Optional[str] = None,
     nhmmer_n_cpu: Optional[int] = None,
     skip: bool = False,
+    config: Optional[str] = None,
 ) -> None:
     """
     Run predictions with Protenix using various input formats.
@@ -1218,7 +1226,25 @@ def predict(
         rfam_database_path (Optional[str]): Rfam database path.
         rna_central_database_path (Optional[str]): RNAcentral database path.
         nhmmer_n_cpu (Optional[int]): Number of CPUs for nhmmer.
+        config (Optional[str]): Flat YAML overrides for persistent settings.
     """
+    config_values = load_config(config)
+    write_input_json = config_values.get("write_input_json", write_input_json)
+    compress_fold_input = config_values.get("compress_fold_input", compress_fold_input)
+    compress_full_confidence = config_values.get(
+        "compress_full_confidence", compress_full_confidence
+    )
+    skip = config_values.get("skip", skip)
+    sample = config_values.get("sample", sample)
+    step = config_values.get("step", step)
+    model_name = config_values.get("model_name", model_name)
+    dtype = config_values.get("dtype", dtype)
+    cycle = config_values.get("cycle", cycle)
+    use_msa = config_values.get("use_msa", use_msa)
+    use_template = config_values.get("use_template", use_template)
+    use_rna_msa = config_values.get("use_rna_msa", use_rna_msa)
+    max_template_date = config_values.get("max_template_date", max_template_date)
+
     if not run_data_pipeline and not run_inference:
         raise click.UsageError(
             "At least one of --run_data_pipeline or --run_inference must be true."
@@ -1232,6 +1258,11 @@ def predict(
         ) from exc
 
     init_logging()
+    if config_values:
+        logger.info(
+            "YAML overrides: %s",
+            ", ".join(f"{key}={value!r}" for key, value in config_values.items()),
+        )
     logger.info(f"Run infer with input={input}, out_dir={out_dir}, sample={sample}")
     if use_default_params and run_inference:
         if model_name in [
@@ -1241,21 +1272,21 @@ def predict(
             "protenix_base_20250630_v1.0.0",
             "protenix-v2",
         ]:
-            cycle = 10
-            step = 200
+            cycle = config_values.get("cycle", 10)
+            step = config_values.get("step", 200)
         elif model_name in [
             "protenix_mini_esm_v0.5.0",
             "protenix_mini_ism_v0.5.0",
             "protenix_mini_default_v0.5.0",
             "protenix_tiny_default_v0.5.0",
         ]:
-            cycle = 4
-            step = 5
+            cycle = config_values.get("cycle", 4)
+            step = config_values.get("step", 5)
             if model_name in [
                 "protenix_mini_esm_v0.5.0",
                 "protenix_mini_ism_v0.5.0",
             ]:
-                use_msa = False
+                use_msa = config_values.get("use_msa", False)
         else:
             raise RuntimeError(
                 f"{model_name} is not supported for inference in our model list"

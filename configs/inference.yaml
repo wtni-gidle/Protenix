@@ -1,0 +1,15 @@
+# Optional persistent settings. Explicit YAML values override CLI options.
+# Task input/output, phases, seeds and devices stay on the command line.
+write_input_json: true
+compress_fold_input: false
+compress_full_confidence: false
+skip: false
+num_diffusion_samples: 5
+num_diffusion_steps: 200
+num_cycles: 10
+model_name: protenix_base_default_v1.0.0
+dtype: bf16
+use_msa: true
+use_template: false
+use_rna_msa: false
+max_template_date: "2021-09-30"

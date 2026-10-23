@@ -17,7 +17,8 @@ usage() {
     echo "-i <input_path>                 Input JSON file or a directory of inputs."
     echo "-o <output_dir>                 Directory in which results will be saved."
     echo "Optional Parameters:"
-    echo "-d <gpu_device>                 CUDA device IDs, for example 0. (default: 0)"
+    echo "-y, --config <path>             YAML settings; explicitly supplied keys override CLI."
+    echo "-d <gpu_device>                 CUDA device IDs (default: existing CUDA_VISIBLE_DEVICES or 0)."
     echo "-D <run_data_pipeline>          Run the data pipeline. (default: true)"
     echo "-P <run_inference>              Run model inference. (default: true)"
     echo "-r <model_seeds>                One seed or comma-separated seeds, e.g. 1,2,3."
@@ -36,6 +37,7 @@ usage() {
     echo "-S <skip>                       Skip seeds whose expected outputs exist. (default: false)"
     echo "-h                              Show this help."
     echo ""
+    echo "Long aliases: --input --output-dir --config --gpu-device --run-data-pipeline --run-inference --model-seeds --help"
     echo "Boolean options accept case-insensitive true/false, t/f, yes/no, y/n, on/off or 1/0."
     echo "Examples:"
     echo "  # Run only the data pipeline."
@@ -43,7 +45,7 @@ usage() {
     echo ""
     echo "  # Read seq_data.json and predict several seeds."
     echo "  $0 -i result/seq/seq_data.json -o result -D false -P true -r 101,102,103 -S true"
-    exit 1
+    return
 }
 
 normalize_boolean() {
@@ -59,10 +61,35 @@ normalize_boolean() {
 }
 
 # region: Parse command line arguments
-while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:f:S:h" opt; do
+# Normalize common long aliases while retaining existing short options.
+normalized_args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --input) option=-i ;;
+        --output-dir) option=-o ;;
+        --config) option=-y ;;
+        --gpu-device) option=-d ;;
+        --run-data-pipeline) option=-D ;;
+        --run-inference) option=-P ;;
+        --model-seeds) option=-r ;;
+        --help) normalized_args+=(-h); shift; continue ;;
+        --) normalized_args+=("$@"); break ;;
+        *) normalized_args+=("$1"); shift; continue ;;
+    esac
+    if [[ $# -lt 2 ]]; then
+        echo "Error: $1 requires a value." >&2
+        exit 2
+    fi
+    normalized_args+=("$option" "$2")
+    shift 2
+done
+set -- "${normalized_args[@]}"
+
+while getopts "i:o:y:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:f:S:h" opt; do
     case "${opt}" in
     i) input_path=$OPTARG ;;
     o) output_dir=$OPTARG ;;
+    y) config_path=$OPTARG ;;
     d) gpu_device=$OPTARG ;;
     D) run_data_pipeline=$OPTARG ;;
     P) run_inference=$OPTARG ;;
@@ -80,8 +107,8 @@ while getopts "i:o:d:D:P:r:c:p:s:t:n:M:T:m:R:w:z:f:S:h" opt; do
     z) compress_fold_input=$OPTARG ;;
     f) compress_full_confidence=$OPTARG ;;
     S) skip=$OPTARG ;;
-    h) usage ;;
-    *) usage ;;
+    h) usage; exit 0 ;;
+    *) usage; exit 2 ;;
     esac
 done
 # endregion
@@ -89,6 +116,7 @@ done
 # region: Check required parameters
 if [[ "$input_path" == "" || "$output_dir" == "" ]]; then
     usage
+    exit 1
 fi
 
 if [[ ! -e "$input_path" ]]; then
@@ -98,7 +126,7 @@ fi
 # endregion
 
 # region: Set default values
-if [[ "$gpu_device" == "" ]]; then gpu_device="0"; fi
+if [[ "${gpu_device+x}" != x ]]; then gpu_device="${CUDA_VISIBLE_DEVICES-0}"; fi
 if [[ "${run_data_pipeline+x}" != x ]]; then run_data_pipeline="true"; fi
 if [[ "${run_inference+x}" != x ]]; then run_inference="true"; fi
 if [[ "$cycle" == "" ]]; then cycle="10"; fi
@@ -181,6 +209,10 @@ command_args=(
 
 if [[ "$model_seeds" != "" ]]; then
     command_args+=(--model_seeds "$model_seeds")
+fi
+
+if [[ -n "${config_path:-}" ]]; then
+    command_args+=(--config "$config_path")
 fi
 
 # Run Protenix with the requested parameters.

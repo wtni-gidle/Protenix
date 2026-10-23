@@ -108,11 +108,12 @@ class _BundleMaterialiser:
         kind: str,
         inline_field: str,
         path_field: str,
+        materialise_empty: bool = False,
     ) -> bool:
         inline_value = chain.get(inline_field)
         path_value = chain.get(path_field)
         if isinstance(inline_value, str):
-            if not inline_value:
+            if not inline_value and not materialise_empty:
                 # An explicit empty inline MSA is a meaningful "do not use
                 # MSA" signal and takes precedence over a stale path field.
                 chain.pop(path_field, None)
@@ -185,6 +186,7 @@ class _BundleMaterialiser:
                     kind="pairedmsa",
                     inline_field="pairedMsa",
                     path_field="pairedMsaPath",
+                    materialise_empty=True,
                 )
                 self._materialise_msa(
                     protein,
@@ -192,6 +194,7 @@ class _BundleMaterialiser:
                     kind="unpairedmsa",
                     inline_field="unpairedMsa",
                     path_field="unpairedMsaPath",
+                    materialise_empty=True,
                 )
                 self._materialise_templates(protein, prefix=prefix)
 

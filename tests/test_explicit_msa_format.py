@@ -81,3 +81,68 @@ class TestExplicitMsaFormat(unittest.TestCase):
                         actual.append(value)
                     self.assertEqual(actual, [paired, unpaired])
                 self.assertNotIn('msa', after)
+
+    def test_empty_protein_channels_are_files_without_changing_search_decision(self):
+        for compress in (False, True):
+            for unpaired in ('', '>query\nAAA\n>hit\nACA\n'):
+                with self.subTest(compress=compress, unpaired=unpaired):
+                    # Explicit empty inline content takes precedence over a stale path.
+                    original = self.write_job({
+                        'id': ['A', 'C'], 'count': 2,
+                        'pairedMsa': '', 'pairedMsaPath': str(self.root / 'missing.a3m'),
+                        'unpairedMsa': unpaired,
+                    })
+                    self.assertFalse(need_msa_search(original))
+                    source = self.input
+                    for cycle in range(2):
+                        output = self.out / f'{compress}-{bool(unpaired)}-{cycle}'
+                        prepared = Path(write_prepared_input_jsons(
+                            source, output, compress_fold_input=compress,
+                        )[0])
+                        protein = json.loads(prepared.read_text())[0]['sequences'][0]['proteinChain']
+                        suffix = '.a3m.zst' if compress else '.a3m'
+                        for channel, expected in [('paired', ''), ('unpaired', unpaired)]:
+                            self.assertNotIn(f'{channel}Msa', protein)
+                            resource = prepared.parent / protein[f'{channel}MsaPath']
+                            self.assertTrue(resource.is_file())
+                            self.assertEqual(resource.name, f'job__A_{channel}msa{suffix}')
+                            self.assertEqual(read_text(resource), expected)
+                        loaded = load_input_json(prepared)[0]
+                        self.assertFalse(need_msa_search(loaded))
+                        self.assertEqual(loaded['sequences'][0]['proteinChain']['count'], 2)
+                        self.assertEqual(loaded['sequences'][0]['proteinChain']['id'], ['A', 'C'])
+                        source = prepared
+
+    def test_empty_paired_roundtrip_preserves_native_msa_features(self):
+        import numpy as np
+        from biotite.structure import AtomArray
+        from protenix.data.msa.msa_featurizer import InferenceMSAFeaturizer
+
+        for sequences in [('AAA',), ('AAA', 'AAA'), ('AAA', 'CCC')]:
+            for compress in (False, True):
+                with self.subTest(sequences=sequences, compress=compress):
+                    entities = []
+                    for sequence in dict.fromkeys(sequences):
+                        entities.append({'proteinChain': {
+                            'sequence': sequence, 'count': sequences.count(sequence),
+                            'pairedMsa': '',
+                            'unpairedMsa': f'>query\n{sequence}\n>hit\n{sequence[0]}gg{sequence[1]}-\n',
+                        }})
+                    atoms = AtomArray(3 * len(sequences))
+                    atoms.chain_id = np.repeat(list('AB')[:len(sequences)], 3)
+                    atoms.res_id = np.tile(np.arange(1, 4), len(sequences))
+                    atoms.set_annotation('asym_id_int', np.repeat(np.arange(len(sequences)), 3))
+                    atoms.set_annotation('centre_atom_mask', np.ones(len(atoms), dtype=bool))
+                    before = InferenceMSAFeaturizer.make_msa_feature(entities, atoms, msa_pair_as_unpair=True)
+                    self.input.write_text(json.dumps([{'name': 'job', 'sequences': entities}]))
+                    prepared = Path(write_prepared_input_jsons(
+                        self.input, self.out / f'{sequences}-{compress}',
+                        compress_fold_input=compress,
+                    )[0])
+                    loaded = load_input_json(prepared)[0]
+                    after = InferenceMSAFeaturizer.make_msa_feature(
+                        loaded['sequences'], atoms, msa_pair_as_unpair=True,
+                    )
+                    self.assertEqual(set(before), set(after))
+                    for name in before:
+                        np.testing.assert_array_equal(after[name], before[name], err_msg=name)
